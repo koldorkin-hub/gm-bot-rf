@@ -1,0 +1,55 @@
+[
+  {
+    "id": "GetResearchRep01",
+    "name": "Инструмент — Найти разбор",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              { "name": "bot_id", "type": "string" },
+              { "name": "user_id", "type": "number" },
+              { "name": "query", "type": "string" }
+            ]
+          }
+        },
+        "id": "d3000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-500, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT topic, summary, left(report_text, 5000) AS report_text, to_char(created_at,'YYYY-MM-DD') AS on_date FROM research_report WHERE bot_id=$1 AND user_id=$2 AND ($3='' OR topic ILIKE '%'||$3||'%') ORDER BY created_at DESC LIMIT 1;",
+          "options": { "queryReplacement": "={{ [$json.bot_id, $json.user_id, String($json.query || '').trim()] }}" }
+        },
+        "id": "d3000000-0000-4000-8000-000000000002",
+        "name": "Найти",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-260, 0],
+        "alwaysOutputData": true,
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "const r = $input.first().json || {};\nif (!r.topic) return [{ json: { response: 'Сохранённых разборов по этой теме нет. Если нужен новый — клиент может запустить /research (это тратит суточный лимит и токены).' } }];\nreturn [{ json: { response: 'Нашёл сохранённый разбор «' + r.topic + '» (' + r.on_date + '). Саммари: ' + (r.summary || '') + '\\n\\nПолный текст отчёта:\\n' + (r.report_text || '') + '\\n\\nЭто готовый разбор из памяти — новый /research запускать не нужно.' } }];"
+        },
+        "id": "d3000000-0000-4000-8000-000000000003",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-20, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": { "main": [[{ "node": "Найти", "type": "main", "index": 0 }]] },
+      "Найти": { "main": [[{ "node": "Ответ агенту", "type": "main", "index": 0 }]] }
+    }
+  }
+]

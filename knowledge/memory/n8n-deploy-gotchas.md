@@ -1,0 +1,38 @@
+---
+name: n8n-deploy-gotchas
+description: Грабли деплоя и CLI n8n — импортированный workflow черновик, staticData стирается, uninstall врёт, права в контейнере
+metadata: 
+  node_type: memory
+  type: reference
+  originSessionId: 52640038-09b4-432e-9afb-c8158670a305
+  modified: 2026-08-15T19:38:44.841Z
+---
+
+Собрано 20-21.07.2026 при блоках A и B. Общее правило блока: проверять не код возврата, а фактический результат — успешный импорт ≠ изменённые данные.
+
+**1. В n8n 2.x импортированный workflow — ЧЕРНОВИК, пока не опубликован.** Подчинённый workflow после `import:workflow` + `update:workflow --active=true` показывал `active=1` в списке, но `toolWorkflow`-вызов из агента падал: подчинённый исполняется из ОПУБЛИКОВАННОЙ версии, а `n8n execute` из CLI гоняет черновик напрямую — поэтому изолированный тест проходил, а вызов из агента нет. Признак в БД: `workflow_entity.activeVersionId = NULL` (у рабочих заполнено). Лечится `n8n publish:workflow --id=...` + рестарт. Команда `update:workflow` устарела и сама пишет «используйте publish:workflow».
+
+**2. `staticData` НЕ переживает импорт workflow.** Проверено опытом: записан маркер, выполнен обычный `import:workflow`, маркер стёрт. Значит кэш токенов после каждого деплоя холодный, и синтетический прогон после импорта — не проверка «для галочки», а обязательная часть процедуры деплоя, которая этот кэш прогревает. Окно уязвимости: промежуток между деплоем и первым сообщением клиента, и только если Postgres ляжет именно в него.
+
+**3. `n8n community-node --uninstall --credential` НЕ удаляет credential из CLI.** Пакет снёсся, а на удалении credential — `AuthPrincipal does not have a role defined` (в CLI-контексте нет роли), при этом строкой выше печатается «successfully uninstalled». Credential остаётся в `credentials_entity`. Удалять напрямую в БД при остановленном n8n (delete из `shared_credentials` + `credentials_entity`), затем `chown 1000:1000 database.sqlite*`. Остатки пакета на диске (`nodes/node_modules/<pkg>`) тоже сносить руками — `installed_packages` очищается, а каталог остаётся.
+
+**4. Каталог в контейнере надо `chown` ДО экспорта, а не после.** `docker exec -u root mkdir /tmp/x` создаёт каталог от root, а `n8n export:workflow` работает под пользователем `node` и падает с `EACCES: permission denied`. Порядок: `mkdir` → `chown node:node` → экспорт. Родственная грабля с `docker cp` — в [[backup-restore-gotchas]].
+
+**5. `sed -i` не работает по `/etc/hosts` внутри контейнера** — Docker его бинд-монтирует, попытка подменить файл даёт `Resource busy`. Писать на месте: `grep -v X /etc/hosts > /tmp/h && cat /tmp/h > /etc/hosts`. Нужно при имитации падения внешнего API (например PubMed) для тестов деградации.
+
+**6. Cron/scheduleTrigger считается в `GENERIC_TIMEZONE`, НЕ в UTC.** У бота `GENERIC_TIMEZONE=Europe/Moscow` (env контейнера). Значит cron-выражение `10 1 * * *` = 01:10 **МСК** = 22:10 UTC (именно так `execution_entity.startedAt`, который в UTC, показывает ночной запуск). Стоило лишнего рестарта при нудж-тесте расписания: вычислил «через 3 мин» в UTC (`date -u`), а n8n ждал это время по Москве → не сработало. При постановке/тесте cron считать по МСК (`TZ=Europe/Moscow date`). Контейнерный `date` при этом может показывать UTC — смотреть именно `GENERIC_TIMEZONE`, не `date` в контейнере. Проверять факт можно нудж-тестом: поставить cron на МСК+3мин, рестарт, ждать исполнение.
+
+**7. Исполнения n8n — в SQLite, не в Postgres (важно для проверки перед рестартом).** Свои данные n8n (workflow/execution/credential) в `/home/node/.n8n/database.sqlite`; в Postgres `n8n_memory` таблицы `execution_entity` НЕТ (`relation "execution_entity" does not exist`). Перед рестартом активные исполнения смотреть в sqlite (bundled `sqlite3@5.1.7`: `/usr/local/lib/node_modules/n8n/node_modules/.pnpm/sqlite3@5.1.7/node_modules/sqlite3`; CLI `sqlite3` в контейнере НЕТ) ИЛИ ориентироваться на app-флаги в Postgres (`batch_busy`, `research_state.stage='running'`) — они и есть «идёт долгая работа». `n8n execute --id` при РАБОТАЮЩЕМ n8n падает («Task Broker's port 5679 already in use») — изолированно прогнать узел так нельзя; проверять SQL в psql + тестировать живьём/синтетикой.
+
+**8. Даже ПОДЧИНЁННЫЕ (tool) воркфлоу требуют РЕСТАРТ, не только `publish`.** `import:workflow` печатает «Deactivating workflow …», а `publish`/`update` — «Changes will not take effect if n8n is running. Please restart». На практике работающий n8n держит определения в памяти и берёт новую версию только после `docker kill+start`. Вывод: группировать несколько правок (main + подчинённые) и делать ОДИН рестарт в конце — так минимизируешь простой и удары по клиентам. Нет CLI `delete:workflow` — удалять воркфлоу через sqlite (`shared_workflow`,`workflow_history`,`workflow_dependency`,`workflow_entity` по id, foreign_keys=OFF).
+
+**9. ★ String.replace в трансформ-скриптах: `$'`, `$&`, `` $` `` в строке замены — СПЕЦПАТТЕРНЫ JS.** Поймано 15.08.2026 на transform-oa-costs: замена содержала regex `'^[^:]+:[0-9]+$'` и текст `× $' + rate` — последовательность `$'` («хвост после совпадения», у якоря в конце строки = пусто) молча съелась, SQL-регулярка и знаки доллара в отчёте оказались повреждены В ПРОДЕ (отчёт бы упал в понедельник). `$1`/`$2` при строковом (не regex) паттерне без групп остаются литералами — плейсхолдеры Postgres выживают, но это везение. **Правило: в трансформах ВСЕГДА `str.replace(anchor, () => replacement)`** — функция отключает все спецпаттерны. И проверять вставленный текст фактом (grep маркера в итоговом JSON), а не кодом возврата скрипта.
+
+**10. Патч prompt caching живёт в файлах контейнера.** `schema/patch-anthropic-cache.js` правит `@langchain/anthropic/dist/chat_models.{js,cjs}` (узел n8n cache_control не пробрасывает — PR n8n#22318 ещё не в релизе). Переживает `docker kill+start`, НО стирается при пересоздании контейнера/апгрейде n8n — **после каждого апгрейда прогнать патч заново** (идемпотентен, инструкция в шапке скрипта) и рестартовать. Деградация без патча безопасная — просто полная цена входных токенов. Проверка: маркер `|| { type: "ephemeral" }` в обоих файлах + `cache_read_input_tokens` в execution data свежих вызовов агента.
+
+Останавливать n8n только `docker kill`, не `docker stop` — почему, см. [[n8n-bot-workflow]].
+Смежные грабли: [[n8n-alerting-gotchas]], [[n8n-postgres-gotchas]], [[n8n-dataflow-gotchas]].
+
+**★ Патч prompt caching стирает ЛЮБОЕ пересоздание контейнера, не только апгрейд (29.08.2026).** `docker compose up -d` после правки переменных окружения пересоздаёт контейнер из образа — патч `@langchain/anthropic` исчезает, и вход снова считается по полной цене. Обычный `docker kill && docker start` патч сохраняет, а `up -d` — нет. **Правило: после любого `compose up -d` сразу прогонять `/root/memory-block/patch-anthropic-cache.js` (из-под root внутри контейнера) и рестартить.** Проверка одной командой: `grep -c "type: .ephemeral." .../@langchain/anthropic/dist/chat_models.cjs` должно вернуть 2.
+
+**★ Хранение данных исполнений (29.08.2026).** Включён режим `EXECUTIONS_DATA_SAVE_ON_SUCCESS=none` — успешные исполнения не сохраняют вход/выход узлов (иначе там оседают фото, PDF с анализами и переписка в открытом виде). Следствие, которое пугает: строки в `execution_entity` остаются со статусом **running** и никогда не переходят в success. Это косметика — у них проставлен `deletedAt`, фоновый уборщик их сносит, старше десяти минут не остаётся. **Не диагностировать по этому статусу и не чинить.** Разбор сбоёв не пострадал: ошибочные исполнения хранятся полностью 72 часа (`EXECUTIONS_DATA_SAVE_ON_ERROR=all`), плюс свой журнал `ops_error` в Postgres.

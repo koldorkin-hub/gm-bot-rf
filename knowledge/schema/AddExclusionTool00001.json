@@ -1,0 +1,82 @@
+[
+  {
+    "id": "AddExclusionTool01",
+    "name": "Инструмент — Ограничение",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              { "name": "bot_id", "type": "string" },
+              { "name": "user_id", "type": "number" },
+              { "name": "scope", "type": "string" },
+              { "name": "value", "type": "string" },
+              { "name": "source_type", "type": "string" },
+              { "name": "note", "type": "string" },
+              { "name": "source_ref", "type": "number" }
+            ]
+          }
+        },
+        "id": "x1000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-600, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nconst scope = String(d.scope || '').trim();\nif (!['load_tag','activity','ingredient','other'].includes(scope)) throw new Error('недопустимый scope: ' + scope);\nlet value = String(d.value || '').trim();\nif (!value) throw new Error('value пуст');\nif (scope === 'load_tag') value = value.toLowerCase();\nconst st = String(d.source_type || '').trim();\nconst source_type = ['injury','condition','medication','client_request','research','coach'].includes(st) ? st : 'coach';\nconst note = String(d.note || '').trim() || null;\nlet sr = Number(d.source_ref);\nsr = isFinite(sr) && sr > 0 ? Math.round(sr) : null;\nreturn [{ json: { bot_id: d.bot_id, user_id: d.user_id, scope, value, source_type, note, source_ref: sr } }];"
+        },
+        "id": "x1000000-0000-4000-8000-000000000002",
+        "name": "Проверить",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-360, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO exclusion (bot_id,user_id,scope,value,source_type,source_ref,note,confirmed,active) SELECT $1,$2,$3,$4,$5,$7,$6,true,true WHERE NOT EXISTS (SELECT 1 FROM exclusion WHERE bot_id=$1 AND user_id=$2 AND scope=$3 AND lower(value)=lower($4) AND active);",
+          "options": {
+            "queryReplacement": "={{ [$json.bot_id, $json.user_id, $json.scope, $json.value, $json.source_type, $json.note, $json.source_ref] }}"
+          }
+        },
+        "id": "x1000000-0000-4000-8000-000000000003",
+        "name": "Записать ограничение",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-120, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "r1",
+                "name": "response",
+                "value": "={{ 'Ограничение зафиксировано: не рекомендовать ' + $('Проверить').first().json.scope + ' = ' + $('Проверить').first().json.value + ' (причина: ' + $('Проверить').first().json.source_type + '). Учитывай его при любых рекомендациях.' }}",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": false,
+          "options": {}
+        },
+        "id": "x1000000-0000-4000-8000-000000000004",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [120, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": { "main": [[{ "node": "Проверить", "type": "main", "index": 0 }]] },
+      "Проверить": { "main": [[{ "node": "Записать ограничение", "type": "main", "index": 0 }]] },
+      "Записать ограничение": { "main": [[{ "node": "Ответ агенту", "type": "main", "index": 0 }]] }
+    }
+  }
+]

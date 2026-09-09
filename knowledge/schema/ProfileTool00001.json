@@ -1,0 +1,80 @@
+[
+  {
+    "id": "ProfileTool00001",
+    "name": "Инструмент — Профиль",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              { "name": "bot_id", "type": "string" },
+              { "name": "user_id", "type": "number" },
+              { "name": "updates", "type": "string" }
+            ]
+          }
+        },
+        "id": "p1000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-600, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nconst WL = ['display_name','birth_date','sex','height_cm','timezone','units','main_goal','goal_targets','goal_deadline','motivation','disciplines','experience_level','equipment','days_per_week','session_minutes','diet_type','target_kcal','target_protein_g','target_fat_g','target_carb_g','cooking_time_pref','cooking_skill','current_weight_kg','current_weight_on','onboarding_done','onboarding_safety_done'];\nlet obj = {};\ntry { obj = (typeof d.updates === 'string') ? JSON.parse(d.updates) : (d.updates || {}); } catch (e) { obj = {}; }\nif (typeof obj !== 'object' || obj === null || Array.isArray(obj)) obj = {};\nconst clean = {};\nfor (const k of WL) { const v = obj[k]; if (v !== undefined && v !== null && v !== '') clean[k] = v; }\nreturn [{ json: { bot_id: d.bot_id, user_id: d.user_id, payload: JSON.stringify(clean), saved_fields: Object.keys(clean) } }];"
+        },
+        "id": "p1000000-0000-4000-8000-000000000002",
+        "name": "Проверить и собрать",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-360, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO client_profile AS cp (bot_id, user_id, display_name, birth_date, sex, height_cm, timezone, units, main_goal, goal_targets, goal_deadline, motivation, disciplines, experience_level, equipment, days_per_week, session_minutes, diet_type, target_kcal, target_protein_g, target_fat_g, target_carb_g, cooking_time_pref, cooking_skill, current_weight_kg, current_weight_on, onboarding_done, onboarding_safety_done, updated_at) SELECT $1, $2, j->>'display_name', (j->>'birth_date')::date, j->>'sex', (j->>'height_cm')::numeric, j->>'timezone', COALESCE(j->>'units','metric'), j->>'main_goal', j->'goal_targets', (j->>'goal_deadline')::date, j->>'motivation', COALESCE(j->'disciplines','[]'::jsonb), j->>'experience_level', j->'equipment', (j->>'days_per_week')::int, (j->>'session_minutes')::int, j->>'diet_type', (j->>'target_kcal')::int, (j->>'target_protein_g')::int, (j->>'target_fat_g')::int, (j->>'target_carb_g')::int, j->>'cooking_time_pref', j->>'cooking_skill', (j->>'current_weight_kg')::numeric, (j->>'current_weight_on')::date, COALESCE((j->>'onboarding_done')::boolean,false), COALESCE((j->>'onboarding_safety_done')::boolean,false), now() FROM (SELECT $3::jsonb AS j) s ON CONFLICT (bot_id, user_id) DO UPDATE SET display_name = COALESCE(EXCLUDED.display_name, cp.display_name), birth_date = COALESCE(EXCLUDED.birth_date, cp.birth_date), sex = COALESCE(EXCLUDED.sex, cp.sex), height_cm = COALESCE(EXCLUDED.height_cm, cp.height_cm), timezone = COALESCE(EXCLUDED.timezone, cp.timezone), units = CASE WHEN ($3::jsonb) ? 'units' THEN EXCLUDED.units ELSE cp.units END, main_goal = COALESCE(EXCLUDED.main_goal, cp.main_goal), goal_targets = COALESCE(EXCLUDED.goal_targets, cp.goal_targets), goal_deadline = COALESCE(EXCLUDED.goal_deadline, cp.goal_deadline), motivation = COALESCE(EXCLUDED.motivation, cp.motivation), disciplines = CASE WHEN ($3::jsonb) ? 'disciplines' THEN EXCLUDED.disciplines ELSE cp.disciplines END, experience_level = COALESCE(EXCLUDED.experience_level, cp.experience_level), equipment = COALESCE(EXCLUDED.equipment, cp.equipment), days_per_week = COALESCE(EXCLUDED.days_per_week, cp.days_per_week), session_minutes = COALESCE(EXCLUDED.session_minutes, cp.session_minutes), diet_type = COALESCE(EXCLUDED.diet_type, cp.diet_type), target_kcal = COALESCE(EXCLUDED.target_kcal, cp.target_kcal), target_protein_g = COALESCE(EXCLUDED.target_protein_g, cp.target_protein_g), target_fat_g = COALESCE(EXCLUDED.target_fat_g, cp.target_fat_g), target_carb_g = COALESCE(EXCLUDED.target_carb_g, cp.target_carb_g), cooking_time_pref = COALESCE(EXCLUDED.cooking_time_pref, cp.cooking_time_pref), cooking_skill = COALESCE(EXCLUDED.cooking_skill, cp.cooking_skill), current_weight_kg = COALESCE(EXCLUDED.current_weight_kg, cp.current_weight_kg), current_weight_on = COALESCE(EXCLUDED.current_weight_on, cp.current_weight_on), onboarding_done = cp.onboarding_done OR COALESCE((($3::jsonb)->>'onboarding_done')::boolean,false), onboarding_safety_done = cp.onboarding_safety_done OR COALESCE((($3::jsonb)->>'onboarding_safety_done')::boolean,false), updated_at = now();",
+          "options": {
+            "queryReplacement": "={{ [$json.bot_id, $json.user_id, $json.payload] }}"
+          }
+        },
+        "id": "p1000000-0000-4000-8000-000000000003",
+        "name": "Апсерт профиля",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-120, 0],
+        "credentials": {
+          "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" }
+        }
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "r1",
+                "name": "response",
+                "value": "={{ $('Проверить и собрать').first().json.saved_fields.length ? ('Профиль сохранён. Записаны поля: ' + $('Проверить и собрать').first().json.saved_fields.join(', ')) : 'Не понял, какие поля сохранить — уточни у клиента и передай их явно.' }}",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": false,
+          "options": {}
+        },
+        "id": "p1000000-0000-4000-8000-000000000004",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [120, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": { "main": [[{ "node": "Проверить и собрать", "type": "main", "index": 0 }]] },
+      "Проверить и собрать": { "main": [[{ "node": "Апсерт профиля", "type": "main", "index": 0 }]] },
+      "Апсерт профиля": { "main": [[{ "node": "Ответ агенту", "type": "main", "index": 0 }]] }
+    }
+  }
+]

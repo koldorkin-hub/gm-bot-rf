@@ -1,0 +1,66 @@
+[
+  {
+    "id": "FindRecipesTool01",
+    "name": "Инструмент — Найти рецепт",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              { "name": "bot_id", "type": "string" },
+              { "name": "user_id", "type": "number" },
+              { "name": "query", "type": "string" }
+            ]
+          }
+        },
+        "id": "b3000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-500, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nreturn [{ json: { bot_id: d.bot_id, user_id: d.user_id, q: String(d.query || '').trim() } }];"
+        },
+        "id": "b3000000-0000-4000-8000-000000000002",
+        "name": "Параметры",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-280, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT json_agg(x ORDER BY fav DESC, created_at DESC) AS recipes FROM (SELECT id, title, kcal_per_serving AS kcal, protein_g_per_serving AS protein, fat_g_per_serving AS fat, carb_g_per_serving AS carb, prep_minutes AS prep, tags, status, (status='favorite') AS fav, created_at FROM recipe WHERE bot_id=$1 AND user_id=$2 AND ($3='' OR title ILIKE '%'||$3||'%' OR tags::text ILIKE '%'||$3||'%') LIMIT 10) x;",
+          "options": { "queryReplacement": "={{ [$json.bot_id, $json.user_id, $json.q] }}" }
+        },
+        "id": "b3000000-0000-4000-8000-000000000003",
+        "name": "Поиск",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-40, 0],
+        "alwaysOutputData": true,
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "const row = $input.first().json || {};\nlet recs = row.recipes; if (typeof recs === 'string') { try { recs = JSON.parse(recs); } catch (e) { recs = []; } }\nrecs = recs || [];\nif (!recs.length) return [{ json: { response: 'В библиотеке клиента подходящих рецептов НЕТ. Придумай новый рецепт, проверь ингредиенты через check_recipe_allergens и сохрани через save_recipe.' } }];\nconst list = recs.map(r => '#' + r.id + ' «' + r.title + '»' + (r.status === 'favorite' ? ' ★' : '') + ' — ' + (r.kcal != null ? r.kcal + ' ккал/порц' : 'БЖУ не задано') + (r.prep ? ', ' + r.prep + ' мин' : '')).join('\\n');\nreturn [{ json: { response: 'Нашёл в библиотеке клиента (' + recs.length + '): \\n' + list + '\\nЕсли подходит — проверь ингредиенты через check_recipe_allergens и предложи, не генерируй заново.' } }];"
+        },
+        "id": "b3000000-0000-4000-8000-000000000004",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [180, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": { "main": [[{ "node": "Параметры", "type": "main", "index": 0 }]] },
+      "Параметры": { "main": [[{ "node": "Поиск", "type": "main", "index": 0 }]] },
+      "Поиск": { "main": [[{ "node": "Ответ агенту", "type": "main", "index": 0 }]] }
+    }
+  }
+]

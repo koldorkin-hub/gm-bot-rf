@@ -1,0 +1,73 @@
+[
+  {
+    "id": "SupportDigest01",
+    "name": "Саппорт — суточный дайджест владельцу",
+    "active": false,
+    "settings": { "executionOrder": "v1", "errorWorkflow": "ErrorNotify00001", "executionTimeout": 120 },
+    "nodes": [
+      {
+        "parameters": { "rule": { "interval": [ { "field": "cronExpression", "expression": "0 9 * * *" } ] } },
+        "id": "dig-0000-0000-0000-000000000001",
+        "name": "Ежедневно 09:00",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [-600, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT COALESCE(json_agg(json_build_object('id',id,'from_id',from_id,'username',username,'first_name',first_name,'text',text,'category',category) ORDER BY category, created_at), '[]'::json) AS rows FROM feedback WHERE digested_at IS NULL;",
+          "options": {}
+        },
+        "id": "dig-0000-0000-0000-000000000002",
+        "name": "Забрать",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-400, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "const rows = $json.rows || [];\nif (!Array.isArray(rows) || rows.length === 0) return [];\nconst meta = { complaint:{i:'🔴',n:'Жалобы'}, tech:{i:'⚙️',n:'Технические сбои'}, suggestion:{i:'💡',n:'Пожелания'}, other:{i:'💬',n:'Прочее'} };\nconst order = ['complaint','tech','suggestion','other'];\nconst esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');\nconst byCat = {}; const ids = [];\nfor (const r of rows) { const c = meta[r.category]?r.category:'other'; (byCat[c]=byCat[c]||[]).push(r); ids.push(r.id); }\nlet out = '📋 <b>Обращения в поддержку за сутки</b> (всего ' + rows.length + ')\\n';\nfor (const c of order) { const list = byCat[c]; if (!list || !list.length) continue; out += '\\n' + meta[c].i + ' <b>' + meta[c].n + ' (' + list.length + '):</b>\\n'; for (const r of list) { const who = esc(r.first_name||'Клиент') + (r.username ? ' (@'+esc(r.username)+')' : ''); let t = esc(r.text); if (t.length > 300) t = t.slice(0,300) + '…'; out += '• <b>' + who + ':</b> ' + t + '\\n'; } }\nreturn [{ json: { text: out, ids: ids } }];"
+        },
+        "id": "dig-0000-0000-0000-000000000003",
+        "name": "Формат",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-200, 0]
+      },
+      {
+        "parameters": {
+          "chatId": "255171226",
+          "text": "={{ $json.text }}",
+          "additionalFields": { "appendAttribution": false, "parse_mode": "HTML" }
+        },
+        "id": "dig-0000-0000-0000-000000000004",
+        "name": "Отправить владельцу",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [0, 0],
+        "credentials": { "telegramApi": { "id": "372DoMw3VRfbXpFL", "name": "Telegram account" } }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE feedback SET digested_at=now() WHERE id = ANY($1::bigint[]);",
+          "options": { "queryReplacement": "={{ [ $('Формат').first().json.ids ] }}" }
+        },
+        "id": "dig-0000-0000-0000-000000000005",
+        "name": "Пометить",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [200, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      }
+    ],
+    "connections": {
+      "Ежедневно 09:00": { "main": [ [ { "node": "Забрать", "type": "main", "index": 0 } ] ] },
+      "Забрать": { "main": [ [ { "node": "Формат", "type": "main", "index": 0 } ] ] },
+      "Формат": { "main": [ [ { "node": "Отправить владельцу", "type": "main", "index": 0 } ] ] },
+      "Отправить владельцу": { "main": [ [ { "node": "Пометить", "type": "main", "index": 0 } ] ] }
+    }
+  }
+]

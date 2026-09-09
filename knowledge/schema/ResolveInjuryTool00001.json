@@ -1,0 +1,57 @@
+[
+  {
+    "id": "ResolveInjuryTool1",
+    "name": "Инструмент — Закрыть травму",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              { "name": "bot_id", "type": "string" },
+              { "name": "user_id", "type": "number" },
+              { "name": "injury_id", "type": "number" }
+            ]
+          }
+        },
+        "id": "z1000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-600, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH r AS (UPDATE injury SET status='resolved', resolved_on=current_date WHERE id=$3 AND bot_id=$1 AND user_id=$2 AND status<>'resolved' RETURNING id, area), d AS (UPDATE exclusion e SET active=false FROM r WHERE e.bot_id=$1 AND e.user_id=$2 AND e.source_type='injury' AND e.source_ref=r.id AND e.active RETURNING e.value) SELECT (SELECT area FROM r) AS resolved_area, (SELECT json_agg(value) FROM d) AS lifted;",
+          "options": {
+            "queryReplacement": "={{ [$json.bot_id, $json.user_id, $json.injury_id] }}"
+          }
+        },
+        "id": "z1000000-0000-4000-8000-000000000002",
+        "name": "Закрыть и снять",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-340, 0],
+        "alwaysOutputData": true,
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "const r = $input.first().json || {};\nif (!r.resolved_area) { return [{ json: { response: 'Не нашёл активную травму с таким id — уточни у клиента, какую именно закрыть (id травм показаны в профиле).' } }]; }\nlet lifted = r.lifted;\nif (typeof lifted === 'string') { try { lifted = JSON.parse(lifted); } catch (e) { lifted = []; } }\nif (!Array.isArray(lifted)) lifted = [];\nlet s = 'Травма «' + r.resolved_area + '» отмечена как закрытая.';\ns += lifted.length ? (' Автоматически сняты связанные ограничения: ' + lifted.join(', ') + '. Эти нагрузки снова разрешены.') : ' Связанных активных ограничений не было.';\nreturn [{ json: { response: s } }];"
+        },
+        "id": "z1000000-0000-4000-8000-000000000003",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-100, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": { "main": [[{ "node": "Закрыть и снять", "type": "main", "index": 0 }]] },
+      "Закрыть и снять": { "main": [[{ "node": "Ответ агенту", "type": "main", "index": 0 }]] }
+    }
+  }
+]

@@ -1,0 +1,59 @@
+[
+  {
+    "id": "OwnerAnalytics01",
+    "name": "Проактив — отчёт по пользователям владельцу",
+    "active": false,
+    "settings": { "executionOrder": "v1", "errorWorkflow": "ErrorNotify00001", "executionTimeout": 120 },
+    "nodes": [
+      {
+        "parameters": { "rule": { "interval": [ { "field": "cronExpression", "expression": "30 9 * * 1" } ] } },
+        "id": "oa-0000-0000-0000-000000000001",
+        "name": "Понедельник 09:30",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [-600, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH cl AS (SELECT bot_id FROM clients WHERE bot_type IN ('client','trusted')),\n reg AS (SELECT cp.bot_id, cp.user_id, cp.sex, cp.onboarding_done, cp.created_at FROM client_profile cp WHERE cp.bot_id IN (SELECT bot_id FROM cl)),\n act AS (SELECT r.bot_id, r.user_id FROM reg r WHERE EXISTS (SELECT 1 FROM n8n_chat_histories h WHERE h.session_id=r.bot_id||':'||r.user_id AND h.created_at >= now()-interval '7 days' AND h.message->>'type'='human'))\nSELECT json_build_object(\n 'registered',(SELECT count(*) FROM reg),\n 'new7',(SELECT count(*) FROM reg WHERE created_at >= now()-interval '7 days'),\n 'onboarded',(SELECT count(*) FROM reg WHERE onboarding_done),\n 'male',(SELECT count(*) FROM reg WHERE sex='male'),\n 'female',(SELECT count(*) FROM reg WHERE sex='female'),\n 'sex_unknown',(SELECT count(*) FROM reg WHERE sex IS NULL OR sex NOT IN ('male','female')),\n 'active7',(SELECT count(*) FROM act),\n 'active_male',(SELECT count(*) FROM act a JOIN reg r ON r.bot_id=a.bot_id AND r.user_id=a.user_id WHERE r.sex='male'),\n 'active_female',(SELECT count(*) FROM act a JOIN reg r ON r.bot_id=a.bot_id AND r.user_id=a.user_id WHERE r.sex='female'),\n 'feat_workout',(SELECT count(DISTINCT (bot_id||':'||user_id)) FROM workout_session WHERE performed_on >= (now()-interval '7 days')::date AND bot_id IN (SELECT bot_id FROM cl)),\n 'feat_food',(SELECT count(DISTINCT (bot_id||':'||user_id)) FROM food_log WHERE eaten_on >= (now()-interval '7 days')::date AND bot_id IN (SELECT bot_id FROM cl)),\n 'feat_meas',(SELECT count(DISTINCT (bot_id||':'||user_id)) FROM measurement WHERE measured_on >= (now()-interval '7 days')::date AND bot_id IN (SELECT bot_id FROM cl)),\n 'feat_research',(SELECT count(DISTINCT session_id) FROM research_attempts WHERE created_at >= now()-interval '7 days' AND bot_id IN (SELECT bot_id FROM cl)),\n 'feat_recipe',(SELECT count(DISTINCT (bot_id||':'||user_id)) FROM recipe WHERE created_at >= now()-interval '7 days' AND bot_id IN (SELECT bot_id FROM cl)),\n 'feat_voice',(SELECT count(DISTINCT (bot_id||':'||user_id)) FROM usage_event WHERE feature='voice' AND at >= now()-interval '7 days' AND bot_id IN (SELECT bot_id FROM cl)),\n 'feat_photo',(SELECT count(DISTINCT (bot_id||':'||user_id)) FROM usage_event WHERE feature='photo' AND at >= now()-interval '7 days' AND bot_id IN (SELECT bot_id FROM cl)),\n 'feat_document',(SELECT count(DISTINCT (bot_id||':'||user_id)) FROM usage_event WHERE feature='document' AND at >= now()-interval '7 days' AND bot_id IN (SELECT bot_id FROM cl))\n) AS report;",
+          "options": {}
+        },
+        "id": "oa-0000-0000-0000-000000000002",
+        "name": "Собрать метрики",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-380, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "let r = $json.report; if (typeof r === 'string') { try { r = JSON.parse(r); } catch(e){ r = {}; } }\nr = r || {};\nconst g = (k) => Number(r[k] || 0);\nconst reg = g('registered'), act = g('active7');\nconst pct = reg > 0 ? Math.round(act / reg * 100) : 0;\nconst unk = g('sex_unknown');\nconst L = [];\nL.push('📊 <b>Отчёт по пользователям за неделю</b>');\nL.push('');\nL.push('👥 Всего зарегистрировано: <b>' + reg + '</b> (♂ ' + g('male') + ' · ♀ ' + g('female') + (unk > 0 ? (' · пол не указан ' + unk) : '') + ')');\nL.push('🆕 Новых за неделю: <b>' + g('new7') + '</b>');\nL.push('✅ Онбординг завершили: ' + g('onboarded') + ' из ' + reg);\nL.push('');\nL.push('🟢 Активны за неделю: <b>' + act + '</b> из ' + reg + ' (' + pct + '%)');\nL.push('   из них ♂ ' + g('active_male') + ' · ♀ ' + g('active_female'));\nL.push('');\nL.push('<b>🔧 Использовали фичи за неделю (чел.):</b>');\nL.push('🏋️ дневник тренировок: ' + g('feat_workout'));\nL.push('🍽️ дневник питания: ' + g('feat_food'));\nL.push('📏 измерения: ' + g('feat_meas'));\nL.push('🔬 /research: ' + g('feat_research'));\nL.push('🥗 рецепты: ' + g('feat_recipe'));\nL.push('🎤 голосовые: ' + g('feat_voice'));\nL.push('📸 фото: ' + g('feat_photo'));\nL.push('📄 документы: ' + g('feat_document'));\nreturn [{ json: { text: L.join('\\n') } }];"
+        },
+        "id": "oa-0000-0000-0000-000000000003",
+        "name": "Формат",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-160, 0]
+      },
+      {
+        "parameters": {
+          "chatId": "255171226",
+          "text": "={{ $json.text }}",
+          "additionalFields": { "appendAttribution": false, "parse_mode": "HTML" }
+        },
+        "id": "oa-0000-0000-0000-000000000004",
+        "name": "Отправить владельцу",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [60, 0],
+        "credentials": { "telegramApi": { "id": "372DoMw3VRfbXpFL", "name": "Telegram account" } }
+      }
+    ],
+    "connections": {
+      "Понедельник 09:30": { "main": [ [ { "node": "Собрать метрики", "type": "main", "index": 0 } ] ] },
+      "Собрать метрики": { "main": [ [ { "node": "Формат", "type": "main", "index": 0 } ] ] },
+      "Формат": { "main": [ [ { "node": "Отправить владельцу", "type": "main", "index": 0 } ] ] }
+    }
+  }
+]

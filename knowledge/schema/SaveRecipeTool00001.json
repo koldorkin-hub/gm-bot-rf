@@ -1,0 +1,97 @@
+[
+  {
+    "id": "SaveRecipeTool01",
+    "name": "Инструмент — Сохранить рецепт",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              { "name": "bot_id", "type": "string" },
+              { "name": "user_id", "type": "number" },
+              { "name": "title", "type": "string" },
+              { "name": "servings", "type": "number" },
+              { "name": "prep_minutes", "type": "number" },
+              { "name": "tags", "type": "string" },
+              { "name": "source", "type": "string" },
+              { "name": "status", "type": "string" },
+              { "name": "ingredients", "type": "string" }
+            ]
+          }
+        },
+        "id": "r3000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-700, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nconst title = String(d.title || '').trim();\nif (!title) throw new Error('title пуст');\nconst servings = Math.max(1, Math.round(Number(d.servings) || 1));\nconst num = v => { const n = Number(v); return isFinite(n) ? n : 0; };\nlet ings = [];\ntry { ings = (typeof d.ingredients === 'string') ? JSON.parse(d.ingredients) : (d.ingredients || []); } catch (e) { ings = []; }\nif (!Array.isArray(ings)) ings = [];\nlet tk = 0, tp = 0, tf = 0, tc = 0;\nfor (const i of ings) { tk += num(i.kcal); tp += num(i.protein_g); tf += num(i.fat_g); tc += num(i.carb_g); }\nconst r1 = x => Math.round(x * 10) / 10;\nconst per = { kps: Math.round(tk / servings), pps: r1(tp / servings), fps: r1(tf / servings), cps: r1(tc / servings) };\nlet tags = d.tags;\nif (typeof tags !== 'string') tags = JSON.stringify(tags || {});\ntry { JSON.parse(tags); } catch (e) { tags = '{}'; }\nconst source = ['bot', 'client', 'found'].includes(d.source) ? d.source : 'bot';\nconst status = ['saved', 'favorite'].includes(d.status) ? d.status : 'saved';\nconst prep = (d.prep_minutes === '' || d.prep_minutes == null || !isFinite(Number(d.prep_minutes))) ? null : Math.round(Number(d.prep_minutes));\nconst cleanIngs = ings.map(i => ({ item: String(i.item || '').trim(), amount: (isFinite(Number(i.amount)) ? Number(i.amount) : null), unit: String(i.unit || '').trim() || null })).filter(x => x.item);\nconst recipeParams = [d.bot_id, d.user_id, title, title.toLowerCase().trim(), servings, per.kps, per.pps, per.fps, per.cps, prep, tags, source, status];\nreturn [{ json: { recipeParams, ingredients: cleanIngs, per, title } }];"
+        },
+        "id": "r3000000-0000-4000-8000-000000000002",
+        "name": "Считать",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-460, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO recipe (bot_id,user_id,title,title_norm,servings,kcal_per_serving,protein_g_per_serving,fat_g_per_serving,carb_g_per_serving,prep_minutes,tags,source,status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13) ON CONFLICT (bot_id,user_id,title_norm) DO NOTHING RETURNING id;",
+          "options": { "queryReplacement": "={{ $json.recipeParams }}" }
+        },
+        "id": "r3000000-0000-4000-8000-000000000003",
+        "name": "Рецепт",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-220, 0],
+        "alwaysOutputData": true,
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "const rid = ($input.first().json || {}).id;\nconst prep = $('Считать').first().json;\nif (!rid) { return [{ json: { query: 'SELECT 1', params: [], existing: true, per: prep.per, title: prep.title } }]; }\nconst ings = prep.ingredients || [];\nconst rows = []; const params = []; let p = 1;\nfor (const i of ings) { const ph = ['$' + (p++), '$' + (p++), '$' + (p++)]; rows.push('(' + rid + ',' + ph.join(',') + ')'); params.push(i.item, i.amount, i.unit); }\nconst query = rows.length ? ('INSERT INTO recipe_ingredient (recipe_id,item,amount,unit) VALUES ' + rows.join(',')) : 'SELECT 1';\nreturn [{ json: { query, params, existing: false, recipe_id: rid, per: prep.per, title: prep.title, n: ings.length } }];"
+        },
+        "id": "r3000000-0000-4000-8000-000000000004",
+        "name": "Строки",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [20, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "={{ $json.query }}",
+          "options": { "queryReplacement": "={{ $json.params }}" }
+        },
+        "id": "r3000000-0000-4000-8000-000000000005",
+        "name": "Ингредиенты",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [260, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "const s = $('Строки').first().json;\nif (s.existing) return [{ json: { response: 'Рецепт «' + s.title + '» уже есть в библиотеке клиента — не дублирую, используй сохранённый.' } }];\nconst per = s.per;\nreturn [{ json: { response: 'Рецепт «' + s.title + '» сохранён в библиотеку (' + s.n + ' ингр.). БЖУ на порцию (расчёт кодом): ' + per.kps + ' ккал, белок ' + per.pps + 'г, жиры ' + per.fps + 'г, углеводы ' + per.cps + 'г. Показывай клиенту эти цифры, сам не пересчитывай.' } }];"
+        },
+        "id": "r3000000-0000-4000-8000-000000000006",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [500, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": { "main": [[{ "node": "Считать", "type": "main", "index": 0 }]] },
+      "Считать": { "main": [[{ "node": "Рецепт", "type": "main", "index": 0 }]] },
+      "Рецепт": { "main": [[{ "node": "Строки", "type": "main", "index": 0 }]] },
+      "Строки": { "main": [[{ "node": "Ингредиенты", "type": "main", "index": 0 }]] },
+      "Ингредиенты": { "main": [[{ "node": "Ответ агенту", "type": "main", "index": 0 }]] }
+    }
+  }
+]

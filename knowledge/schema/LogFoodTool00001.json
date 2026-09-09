@@ -1,0 +1,82 @@
+[
+  {
+    "id": "LogFoodTool000001",
+    "name": "Инструмент — Дневник еды",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              { "name": "bot_id", "type": "string" },
+              { "name": "user_id", "type": "number" },
+              { "name": "eaten_on", "type": "string" },
+              { "name": "meal_type", "type": "string" },
+              { "name": "description", "type": "string" },
+              { "name": "kcal", "type": "number" },
+              { "name": "protein_g", "type": "number" },
+              { "name": "fat_g", "type": "number" },
+              { "name": "carb_g", "type": "number" }
+            ]
+          }
+        },
+        "id": "f2000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-600, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nconst desc = String(d.description || '').trim();\nif (!desc) throw new Error('description пуст');\nconst today = new Date().toISOString().slice(0, 10);\nlet on = String(d.eaten_on || '').trim();\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(on)) on = today;\nif (on > today) on = today;\nconst num = v => { const n = Number(v); return isFinite(n) ? n : null; };\nconst mt = String(d.meal_type || '').trim() || null;\nreturn [{ json: { bot_id: d.bot_id, user_id: d.user_id, eaten_on: on, meal_type: mt, description: desc, kcal: num(d.kcal), protein_g: num(d.protein_g), fat_g: num(d.fat_g), carb_g: num(d.carb_g) } }];"
+        },
+        "id": "f2000000-0000-4000-8000-000000000002",
+        "name": "Подготовить",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-360, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO food_log (bot_id,user_id,eaten_on,meal_type,description,kcal,protein_g,fat_g,carb_g,source) VALUES ($1,$2,$3::date,$4,$5,$6,$7,$8,$9,'client');",
+          "options": { "queryReplacement": "={{ [$json.bot_id, $json.user_id, $json.eaten_on, $json.meal_type, $json.description, $json.kcal, $json.protein_g, $json.fat_g, $json.carb_g] }}" }
+        },
+        "id": "f2000000-0000-4000-8000-000000000003",
+        "name": "Записать еду",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-120, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "r1",
+                "name": "response",
+                "value": "={{ 'Записал в дневник еды: ' + $('Подготовить').first().json.description + ($('Подготовить').first().json.kcal ? (' — ' + $('Подготовить').first().json.kcal + ' ккал') : '') + ' (' + $('Подготовить').first().json.eaten_on + ')' }}",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": false,
+          "options": {}
+        },
+        "id": "f2000000-0000-4000-8000-000000000004",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [120, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": { "main": [[{ "node": "Подготовить", "type": "main", "index": 0 }]] },
+      "Подготовить": { "main": [[{ "node": "Записать еду", "type": "main", "index": 0 }]] },
+      "Записать еду": { "main": [[{ "node": "Ответ агенту", "type": "main", "index": 0 }]] }
+    }
+  }
+]

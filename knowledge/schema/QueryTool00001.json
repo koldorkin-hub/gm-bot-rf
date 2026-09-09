@@ -1,0 +1,68 @@
+[
+  {
+    "id": "QueryTool00001",
+    "name": "Инструмент — Прогресс",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              { "name": "bot_id", "type": "string" },
+              { "name": "user_id", "type": "number" },
+              { "name": "domain", "type": "string" },
+              { "name": "metric", "type": "string" },
+              { "name": "period_days", "type": "number" }
+            ]
+          }
+        },
+        "id": "q1000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-600, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nlet p = Number(d.period_days); if (!isFinite(p) || p <= 0) p = 30; p = Math.round(p);\nconst domain = ['measurement','workout','food'].includes(String(d.domain||'').trim()) ? String(d.domain).trim() : 'measurement';\nconst metric = String(d.metric||'').trim();\nlet query, params, error = null;\nif (domain === 'measurement') {\n  if (!metric) { query = 'SELECT 1'; params = []; error = 'no_metric'; }\n  else {\n    query = `SELECT metric, count(*) AS n, (array_agg(value ORDER BY measured_on DESC, id DESC))[1] AS last_value, (array_agg(measured_on ORDER BY measured_on DESC, id DESC))[1] AS last_date, min(value) AS min_v, max(value) AS max_v, round(avg(value),2) AS avg_v, (SELECT json_agg(json_build_object('d',m2.measured_on,'v',m2.value) ORDER BY m2.measured_on) FROM measurement m2 WHERE m2.bot_id=$1 AND m2.user_id=$2 AND m2.metric=$3 AND m2.measured_on >= current_date-(($4)::text||' days')::interval) AS series FROM measurement WHERE bot_id=$1 AND user_id=$2 AND metric=$3 AND measured_on >= current_date-(($4)::text||' days')::interval GROUP BY metric`;\n    params = [d.bot_id, d.user_id, metric, p];\n  }\n} else if (domain === 'workout') {\n  query = `SELECT (SELECT count(*) FROM workout_session WHERE bot_id=$1 AND user_id=$2 AND performed_on >= current_date-(($3)::text||' days')::interval) AS sessions, (SELECT coalesce(round(sum(reps*weight_kg)),0) FROM workout_entry we JOIN workout_session ws ON we.session_id=ws.id WHERE ws.bot_id=$1 AND ws.user_id=$2 AND we.kind='strength' AND ws.performed_on >= current_date-(($3)::text||' days')::interval) AS strength_volume, (SELECT coalesce(round(sum(distance_m)),0) FROM workout_entry we JOIN workout_session ws ON we.session_id=ws.id WHERE ws.bot_id=$1 AND ws.user_id=$2 AND we.kind='cardio' AND ws.performed_on >= current_date-(($3)::text||' days')::interval) AS cardio_distance_m`;\n  params = [d.bot_id, d.user_id, p];\n} else {\n  query = `SELECT count(*) AS entries, count(distinct eaten_on) AS days, coalesce(round(sum(kcal)),0) AS total_kcal, coalesce(round(sum(protein_g)),0) AS total_protein, coalesce(round(sum(fat_g)),0) AS total_fat, coalesce(round(sum(carb_g)),0) AS total_carb FROM food_log WHERE bot_id=$1 AND user_id=$2 AND eaten_on >= current_date-(($3)::text||' days')::interval`;\n  params = [d.bot_id, d.user_id, p];\n}\nreturn [{ json: { query, params, domain, metric, period_days: p, error } }];"
+        },
+        "id": "q1000000-0000-4000-8000-000000000002",
+        "name": "Параметры",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-360, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "={{ $json.query }}",
+          "options": { "queryReplacement": "={{ $json.params }}" }
+        },
+        "id": "q1000000-0000-4000-8000-000000000003",
+        "name": "Данные",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-120, 0],
+        "alwaysOutputData": true,
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "const a = $input.first().json || {};\nconst p = $('Параметры').first().json;\nconst per = p.period_days;\nif (p.domain === 'measurement') {\n  if (p.error === 'no_metric') return [{ json: { response: 'Уточни, какую метрику показать (вес, талия, % жира и т.п.).' } }];\n  if (a.n === undefined || a.n === null || Number(a.n) === 0) return [{ json: { response: 'В базе НЕТ записей по метрике ' + p.metric + ' за ' + per + ' дн. Так и скажи клиенту, не выдумывай.' } }];\n  let arr = a.series; if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch (e) { arr = null; } }\n  let s = 'Метрика ' + a.metric + ' за ' + per + ' дн: последнее ' + a.last_value + ' (' + a.last_date + '), записей ' + a.n + ', мин ' + a.min_v + ', макс ' + a.max_v + ', среднее ' + a.avg_v + '.';\n  if (Array.isArray(arr) && arr.length) s += ' Ряд: ' + arr.map(x => x.d + '=' + x.v).join(', ') + '.';\n  return [{ json: { response: s } }];\n}\nif (p.domain === 'workout') {\n  const sess = Number(a.sessions || 0);\n  if (!sess) return [{ json: { response: 'За ' + per + ' дн тренировок в журнале НЕТ. Так и скажи.' } }];\n  const km = Math.round(Number(a.cardio_distance_m || 0) / 10) / 100;\n  return [{ json: { response: 'Тренировки за ' + per + ' дн (из базы): сессий ' + sess + ', силовой объём (Σ повторы×вес) ' + a.strength_volume + ' кг, кардио-дистанция ' + km + ' км.' } }];\n}\nconst days = Number(a.days || 0);\nif (!days) return [{ json: { response: 'За ' + per + ' дн записей о еде НЕТ. Так и скажи.' } }];\nconst avg = Math.round(Number(a.total_kcal || 0) / days);\nreturn [{ json: { response: 'Еда за ' + per + ' дн (из базы): дней с записями ' + days + ', записей ' + a.entries + '. Всего ' + a.total_kcal + ' ккал, в среднем ' + avg + ' ккал/день. БЖУ суммарно: белок ' + a.total_protein + 'г, жиры ' + a.total_fat + 'г, углеводы ' + a.total_carb + 'г.' } }];"
+        },
+        "id": "q1000000-0000-4000-8000-000000000004",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [120, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": { "main": [[{ "node": "Параметры", "type": "main", "index": 0 }]] },
+      "Параметры": { "main": [[{ "node": "Данные", "type": "main", "index": 0 }]] },
+      "Данные": { "main": [[{ "node": "Ответ агенту", "type": "main", "index": 0 }]] }
+    }
+  }
+]

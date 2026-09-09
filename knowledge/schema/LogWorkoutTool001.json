@@ -1,0 +1,323 @@
+[
+  {
+    "updatedAt": "2026-08-11T20:11:19.000Z",
+    "createdAt": "2026-07-31T08:17:09.357Z",
+    "id": "LogWorkoutTool001",
+    "name": "Инструмент — Журнал тренировок",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              {
+                "name": "bot_id",
+                "type": "string"
+              },
+              {
+                "name": "user_id",
+                "type": "number"
+              },
+              {
+                "name": "performed_on",
+                "type": "string"
+              },
+              {
+                "name": "session_type",
+                "type": "string"
+              },
+              {
+                "name": "duration_min",
+                "type": "number"
+              },
+              {
+                "name": "note",
+                "type": "string"
+              },
+              {
+                "name": "entries",
+                "type": "string"
+              },
+              {
+                "name": "client_today",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "id": "w2000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -700,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\n// «Сегодня» — по поясу КЛИЕНТА. Серверный UTC после полуночи по Москве даёт вчерашнюю дату.\nconst ct = String(d.client_today || '').trim();\nconst today = /^\\d{4}-\\d{2}-\\d{2}$/.test(ct) ? ct : new Date().toISOString().slice(0, 10);\nlet on = String(d.performed_on || '').trim();\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(on)) on = today;\nif (on > today) on = today;\nconst num = v => { const n = Number(v); return isFinite(n) ? n : null; };\nlet entries = [];\ntry { entries = (typeof d.entries === 'string') ? JSON.parse(d.entries) : (d.entries || []); } catch (e) { entries = []; }\nif (!Array.isArray(entries)) entries = [];\nreturn [{ json: { bot_id: d.bot_id, user_id: d.user_id, performed_on: on, session_type: String(d.session_type || '').trim() || null, duration_min: num(d.duration_min), note: String(d.note || '').trim() || null, entries } }];"
+        },
+        "id": "w2000000-0000-4000-8000-000000000002",
+        "name": "Подготовить",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -460,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH existing AS (SELECT id FROM workout_session WHERE bot_id=$1 AND user_id=$2 AND performed_on=$3::date ORDER BY id DESC LIMIT 1), ins AS (INSERT INTO workout_session (bot_id,user_id,performed_on,session_type,duration_min,note,source) SELECT $1,$2,$3::date,$4,$5,$6,'client' WHERE NOT EXISTS (SELECT 1 FROM existing) RETURNING id) SELECT COALESCE((SELECT id FROM existing),(SELECT id FROM ins)) AS id;",
+          "options": {
+            "queryReplacement": "={{ [$json.bot_id, $json.user_id, $json.performed_on, $json.session_type, $json.duration_min, $json.note] }}"
+          }
+        },
+        "id": "w2000000-0000-4000-8000-000000000003",
+        "name": "Сессия",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          -220,
+          0
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const prep = $('Подготовить').first().json;\n// id сессии берём у самой Сессии: между ней и нами теперь стоит узел справки.\nconst sessionId = $('Сессия').first().json.id;\nconst ref = $input.first().json || {};\nconst num = v => { const n = Number(v); return isFinite(n) ? n : null; };\n\nconst weight = Number(ref.weight_kg) || null;\nconst age = Number(ref.age) || null;\nconst male = /^m|муж/i.test(String(ref.sex || ''));\nconst metTable = Array.isArray(ref.met_table) ? ref.met_table : [];\n\n// Справочник отсортирован: сначала уточняющие шаблоны, потом общие.\nconst metFor = (name) => {\n  const s = String(name || '').toLowerCase();\n  for (const r of metTable) { if (r && r.p && s.indexOf(r.p) !== -1) return Number(r.met); }\n  return null;\n};\n\n// Пульс точнее MET — если клиент его назвал, считаем по Кейтелю (учитывает пол и возраст).\nconst kcalFor = (minutes, met, hr) => {\n  if (!(minutes > 0)) return null;\n  if (hr > 0 && weight > 0 && age > 0) {\n    const perMin = male\n      ? (-55.0969 + 0.6309 * hr + 0.1988 * weight + 0.2017 * age) / 4.184\n      : (-20.4022 + 0.4472 * hr - 0.1263 * weight + 0.0740 * age) / 4.184;\n    if (perMin > 0) return Math.round(perMin * minutes);\n  }\n  if (met > 0 && weight > 0) return Math.round(met * 3.5 * weight / 200 * minutes);\n  return null;\n};\n\nconst entries = prep.entries || [];\nconst cols = ['session_id','activity_name','entry_order','kind','set_no','reps','weight_kg','rpe','duration_s','distance_m','pace_s_per_km','hr_avg','kcal'];\nconst rows = []; const params = []; let p = 1; let order = 0;\nfunction addRow(vals) { const ph = vals.map(() => '$' + (p++)); rows.push('(' + ph.join(',') + ')'); for (const v of vals) params.push(v); }\n\nlet cardioMin = 0, kcalTotal = 0, hasStrength = false;\n\nfor (const e of entries) {\n  order++;\n  const kind = e.kind === 'cardio' ? 'cardio' : (e.kind === 'strength' ? 'strength' : 'other');\n  const act = e.activity || e.activity_name || null;\n  if (kind === 'strength' && Array.isArray(e.sets) && e.sets.length) {\n    hasStrength = true;\n    let sn = 0;\n    for (const s of e.sets) { sn++; addRow([sessionId, act, order, 'strength', sn, num(s.reps), num(s.weight_kg != null ? s.weight_kg : s.weight), num(s.rpe), null, null, null, null, null]); }\n  } else {\n    let dur = num(e.duration_s);\n    let dist = num(e.distance_m);\n    const steps = num(e.steps);\n    if (steps > 0) {\n      // Обычный темп ходьбы — около 100 шагов в минуту, длина шага ~0.7 м.\n      if (!(dur > 0)) dur = Math.round(steps / 100 * 60);\n      if (!(dist > 0)) dist = Math.round(steps * 0.7);\n    }\n    const minutes = dur > 0 ? dur / 60 : 0;\n    const met = metFor(act) || (kind === 'cardio' ? metFor('кардио') : null);\n    const k = kcalFor(minutes, met, num(e.hr_avg));\n    if (k) kcalTotal += k;\n    if (kind === 'cardio') cardioMin += minutes;\n    addRow([sessionId, act, order, kind, num(e.set_no), num(e.reps), num(e.weight_kg != null ? e.weight_kg : e.weight), num(e.rpe), dur, dist, num(e.pace_s_per_km), num(e.hr_avg), k]);\n  }\n}\n\n// Силовая работа: время сессии минус кардио. Отдельной строкой-оценкой,\n// и только если такой строки в сессии ещё нет — иначе повторный вызов за день удвоит счёт.\nif (hasStrength && Number(prep.duration_min) > 0 && !Number(ref.has_strength_est)) {\n  const strengthMin = Math.max(0, Number(prep.duration_min) - cardioMin);\n  if (strengthMin >= 5) {\n    const k = kcalFor(strengthMin, metFor('силовая'), null);\n    if (k) {\n      kcalTotal += k;\n      order++;\n      addRow([sessionId, 'Силовая работа (оценка)', order, 'other', null, null, null, null, Math.round(strengthMin * 60), null, null, null, k]);\n    }\n  }\n}\n\nconst query = rows.length ? ('INSERT INTO workout_entry (' + cols.join(',') + ') VALUES ' + rows.join(',')) : 'SELECT 1';\nreturn [{ json: { query, params, session_id: sessionId, n_exercises: order, n_rows: rows.length, kcal_total: kcalTotal || null } }];"
+        },
+        "id": "w2000000-0000-4000-8000-000000000004",
+        "name": "Строки",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          20,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "={{ $json.query }}",
+          "options": {
+            "queryReplacement": "={{ $json.params }}"
+          }
+        },
+        "id": "w2000000-0000-4000-8000-000000000005",
+        "name": "Записать строки",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          260,
+          0
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "r1",
+                "name": "response",
+                "value": "={{ 'Записал тренировку от ' + $('Подготовить').first().json.performed_on + ': упражнений ' + $('Строки').first().json.n_exercises + ', строк-подходов ' + $('Строки').first().json.n_rows + '.' + ($('Строки').first().json.kcal_total ? ' Расход ≈ ' + $('Строки').first().json.kcal_total + ' ккал — посчитано системой, не пересчитывай.' : '') + ($('Рекорды').first().json.pr_text || '') }}",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": false,
+          "options": {}
+        },
+        "id": "w2000000-0000-4000-8000-000000000006",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          500,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH this_session AS ( SELECT e.activity_name, max(e.weight_kg*(1+e.reps/30.0)) AS sess_1rm FROM workout_entry e WHERE e.session_id=$4 AND e.kind='strength' AND e.weight_kg IS NOT NULL AND e.reps IS NOT NULL AND e.reps>0 AND e.activity_name IS NOT NULL AND e.weight_kg>0 GROUP BY e.activity_name),prev_best AS ( SELECT e.activity_name, max(e.weight_kg*(1+e.reps/30.0)) AS prev_1rm FROM workout_entry e JOIN workout_session s ON e.session_id=s.id WHERE s.bot_id=$1 AND s.user_id=$2 AND s.id<>$4 AND e.kind='strength' AND e.weight_kg IS NOT NULL AND e.reps>0 GROUP BY e.activity_name),new_prs AS ( SELECT t.activity_name, round(t.sess_1rm::numeric,1) AS one_rm FROM this_session t JOIN prev_best p ON p.activity_name=t.activity_name WHERE t.sess_1rm > p.prev_1rm + 0.01),ins AS ( INSERT INTO personal_record (bot_id,user_id,exercise,metric,value,unit,achieved_on) SELECT $1,$2,activity_name,'est_1rm',one_rm,'кг',$3::date FROM new_prs RETURNING exercise, value)SELECT CASE WHEN count(*)=0 THEN '' ELSE ' 🎉 НОВЫЙ ЛИЧНЫЙ РЕКОРД (расчётный 1ПМ): ' || string_agg(exercise||' ~'||value||' кг', ', ') || '. Обязательно тепло поздравь клиента с этим!' END AS pr_text FROM ins;",
+          "options": {
+            "queryReplacement": "={{ [ $('Подготовить').first().json.bot_id, $('Подготовить').first().json.user_id, $('Подготовить').first().json.performed_on, $('Сессия').first().json.id ] }}"
+          }
+        },
+        "id": "pr-node-0001",
+        "name": "Рекорды",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          460,
+          0
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT\n  (SELECT current_weight_kg FROM client_profile WHERE bot_id=$1 AND user_id=$2) AS weight_kg,\n  (SELECT sex FROM client_profile WHERE bot_id=$1 AND user_id=$2) AS sex,\n  (SELECT date_part('year', age(birth_date))::int FROM client_profile WHERE bot_id=$1 AND user_id=$2) AS age,\n  (SELECT json_agg(json_build_object('p', lower(pattern), 'met', met) ORDER BY priority DESC, length(pattern) DESC)\n     FROM activity_met) AS met_table,\n  (SELECT count(*) FROM workout_entry\n     WHERE session_id = $3 AND activity_name = 'Силовая работа (оценка)') AS has_strength_est;",
+          "options": {
+            "queryReplacement": "={{ [ $('Подготовить').first().json.bot_id, $('Подготовить').first().json.user_id, $json.id ] }}"
+          }
+        },
+        "id": "lw-kcal-0000-4000-8000-000000000001",
+        "name": "Калории: справка",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          420,
+          0
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        },
+        "alwaysOutputData": true,
+        "onError": "continueRegularOutput"
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Подготовить",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Подготовить": {
+        "main": [
+          [
+            {
+              "node": "Сессия",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Сессия": {
+        "main": [
+          [
+            {
+              "node": "Калории: справка",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Строки": {
+        "main": [
+          [
+            {
+              "node": "Записать строки",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Записать строки": {
+        "main": [
+          [
+            {
+              "node": "Рекорды",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Рекорды": {
+        "main": [
+          [
+            {
+              "node": "Ответ агенту",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Калории: справка": {
+        "main": [
+          [
+            {
+              "node": "Строки",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "staticData": null,
+    "meta": null,
+    "nodeGroups": [],
+    "pinData": null,
+    "versionId": "c63025ae-0ecc-4795-aeba-21556baa9916",
+    "activeVersionId": "c63025ae-0ecc-4795-aeba-21556baa9916",
+    "versionCounter": 3,
+    "triggerCount": 0,
+    "sourceWorkflowId": null,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-07-31T08:17:09.361Z",
+        "createdAt": "2026-07-31T08:17:09.361Z",
+        "role": "workflow:owner",
+        "workflowId": "LogWorkoutTool001",
+        "projectId": "aeezIZ8IOn3uHQp8",
+        "project": {
+          "updatedAt": "2026-06-27T10:22:49.126Z",
+          "createdAt": "2026-06-27T10:15:58.391Z",
+          "id": "aeezIZ8IOn3uHQp8",
+          "name": "Andrey Koldorkin <andreicros@proton.me>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "customTelemetryTags": [],
+          "creatorId": "5ebf5692-854f-4f37-a2cd-09eaa9ace37e"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
+    }
+  }
+]

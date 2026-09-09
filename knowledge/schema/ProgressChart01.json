@@ -1,0 +1,141 @@
+[
+  {
+    "id": "ProgressChart01",
+    "name": "Инструмент — График прогресса",
+    "active": false,
+    "settings": { "executionOrder": "v1", "errorWorkflow": "ErrorNotify00001", "executionTimeout": 120 },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": { "values": [
+            { "name": "metric", "type": "string" },
+            { "name": "bot_id", "type": "string" },
+            { "name": "user_id", "type": "string" },
+            { "name": "chat_id", "type": "string" },
+            { "name": "bot_token", "type": "string" }
+          ] }
+        },
+        "id": "pc-0000-0000-0000-000000000001",
+        "name": "Триггер",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-800, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "const raw = String($json.metric || 'weight').toLowerCase().trim();\nlet variants, label, unit;\nif (/вес|weight|масс/.test(raw)) { variants = ['вес','weight']; label = 'веса'; unit = 'кг'; }\nelse if (/тали|waist/.test(raw)) { variants = ['талия','waist']; label = 'талии'; unit = 'см'; }\nelse if (/жир|fat/.test(raw)) { variants = ['body_fat_pct','% жира','жир','bodyfat']; label = '% жира'; unit = '%'; }\nelse if (/бедр|hip/.test(raw)) { variants = ['бедра','hip','hips']; label = 'бёдер'; unit = 'см'; }\nelse { variants = [raw]; label = raw; unit = ''; }\nreturn [{ json: { variants, label, unit, bot_id: $json.bot_id, user_id: Number($json.user_id), chat_id: String($json.chat_id), bot_token: $json.bot_token } }];"
+        },
+        "id": "pc-0000-0000-0000-000000000002",
+        "name": "Метрика",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-600, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT COALESCE(json_agg(json_build_object('d', to_char(measured_on,'YYYY-MM-DD'), 'v', value) ORDER BY measured_on), '[]'::json) AS points, count(*) AS n FROM measurement WHERE bot_id=$1 AND user_id=$2 AND metric = ANY($3::text[]) AND measured_on >= (now()-interval '180 days')::date;",
+          "options": { "queryReplacement": "={{ [ $json.bot_id, $json.user_id, $json.variants ] }}" }
+        },
+        "id": "pc-0000-0000-0000-000000000003",
+        "name": "Данные",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-400, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "const m = $('Метрика').first().json;\nlet pts = $json.points; if (typeof pts === 'string') { try { pts = JSON.parse(pts); } catch(e){ pts = []; } }\npts = (pts || []).filter(p => p && p.v != null);\nif (pts.length < 2) { return [{ json: { enough: false, label: m.label } }]; }\nconst vals = pts.map(p => Number(p.v));\nconst dates = pts.map(p => String(p.d));\nconst minV = Math.min.apply(null, vals), maxV = Math.max.apply(null, vals);\nconst pad = (maxV - minV) * 0.15 || Math.max(1, maxV*0.02);\nconst lo = minV - pad, hi = maxV + pad;\nconst W = 700, H = 400, mL = 64, mR = 30, mT = 64, mB = 52;\nconst pw = W - mL - mR, ph = H - mT - mB;\nconst X = i => mL + (pts.length === 1 ? pw/2 : pw * i/(pts.length-1));\nconst Y = v => mT + ph * (1 - (v - lo)/(hi - lo));\nconst poly = pts.map((p,i) => X(i).toFixed(1)+','+Y(vals[i]).toFixed(1)).join(' ');\nconst circles = pts.map((p,i) => '<circle cx=\"'+X(i).toFixed(1)+'\" cy=\"'+Y(vals[i]).toFixed(1)+'\" r=\"4\" fill=\"#38bdf8\"/>').join('');\nconst last = vals[vals.length-1], first = vals[0];\nconst diff = Math.round((last - first)*10)/10;\nconst diffStr = diff === 0 ? 'без изменений' : ((diff>0?'+':'')+diff+' '+m.unit+' за период');\nconst esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');\nconst ticks = [lo, (lo+hi)/2, hi].map(v => { const yy = Y(v); return '<line x1=\"'+mL+'\" y1=\"'+yy.toFixed(1)+'\" x2=\"'+(W-mR)+'\" y2=\"'+yy.toFixed(1)+'\" stroke=\"#1e293b\" stroke-width=\"1\"/><text x=\"'+(mL-10)+'\" y=\"'+(yy+4).toFixed(1)+'\" fill=\"#94a3b8\" font-size=\"13\" text-anchor=\"end\">'+v.toFixed(1)+'</text>'; }).join('');\nconst xlab = '<text x=\"'+mL+'\" y=\"'+(H-mB+24)+'\" fill=\"#94a3b8\" font-size=\"12\">'+dates[0]+'</text><text x=\"'+(W-mR)+'\" y=\"'+(H-mB+24)+'\" fill=\"#94a3b8\" font-size=\"12\" text-anchor=\"end\">'+dates[dates.length-1]+'</text>';\nconst svg = '<svg width=\"'+W+'\" height=\"'+H+'\" xmlns=\"http://www.w3.org/2000/svg\">'\n + '<rect width=\"'+W+'\" height=\"'+H+'\" fill=\"#0f172a\"/>'\n + '<text x=\"'+mL+'\" y=\"36\" fill=\"#e2e8f0\" font-family=\"sans-serif\" font-size=\"22\" font-weight=\"bold\">Динамика '+esc(m.label)+'</text>'\n + '<text x=\"'+(W-mR)+'\" y=\"36\" fill=\"#38bdf8\" font-family=\"sans-serif\" font-size=\"15\" text-anchor=\"end\">'+last+' '+esc(m.unit)+' ('+diffStr+')</text>'\n + ticks\n + '<polyline points=\"'+poly+'\" fill=\"none\" stroke=\"#38bdf8\" stroke-width=\"3\"/>'\n + circles + xlab + '</svg>';\nconst html = '<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>html,body{margin:0;padding:0;font-family:sans-serif}</style></head><body>'+svg+'</body></html>';\nconst bin = await this.helpers.prepareBinaryData(Buffer.from(html, 'utf8'), 'index.html', 'text/html');\nreturn [{ json: { enough: true, W, H, label: m.label }, binary: { html: bin } }];"
+        },
+        "id": "pc-0000-0000-0000-000000000004",
+        "name": "HTML",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-200, 0]
+      },
+      {
+        "parameters": {
+          "conditions": { "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 }, "combinator": "and", "conditions": [ { "id": "e1", "leftValue": "={{ $json.enough }}", "rightValue": "", "operator": { "type": "boolean", "operation": "true", "singleValue": true } } ] },
+          "options": {}
+        },
+        "id": "pc-0000-0000-0000-000000000005",
+        "name": "Есть график?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [0, 0]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://gotenberg:3000/forms/chromium/screenshot/html",
+          "sendBody": true,
+          "contentType": "multipart-form-data",
+          "bodyParameters": { "parameters": [
+            { "parameterType": "formBinaryData", "name": "files", "inputDataFieldName": "html" },
+            { "name": "format", "value": "png" },
+            { "name": "width", "value": "={{ $json.W }}" },
+            { "name": "height", "value": "={{ $json.H }}" }
+          ] },
+          "options": { "response": { "response": { "responseFormat": "file", "outputPropertyName": "data" } }, "timeout": 30000 }
+        },
+        "id": "pc-0000-0000-0000-000000000006",
+        "name": "PNG",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [220, -80]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=https://api.telegram.org/bot{{ $('Метрика').first().json.bot_token }}/sendPhoto",
+          "sendBody": true,
+          "contentType": "multipart-form-data",
+          "bodyParameters": { "parameters": [
+            { "name": "chat_id", "value": "={{ $('Метрика').first().json.chat_id }}" },
+            { "parameterType": "formBinaryData", "name": "photo", "inputDataFieldName": "data" }
+          ] },
+          "options": { "timeout": 20000 }
+        },
+        "id": "pc-0000-0000-0000-000000000007",
+        "name": "Фото",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [440, -80],
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "assignments": { "assignments": [ { "id": "a1", "name": "response", "value": "=График динамики {{ $('Метрика').first().json.label }} отправлен клиенту картинкой. Кратко подтверди и при желании прокомментируй тренд.", "type": "string" } ] },
+          "options": {}
+        },
+        "id": "pc-0000-0000-0000-000000000008",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [660, -80]
+      },
+      {
+        "parameters": {
+          "assignments": { "assignments": [ { "id": "a2", "name": "response", "value": "=Недостаточно данных для графика {{ $json.label }} — нужно минимум 2 замера. Попроси клиента записать хотя бы пару значений, тогда покажу динамику.", "type": "string" } ] },
+          "options": {}
+        },
+        "id": "pc-0000-0000-0000-000000000009",
+        "name": "Мало данных",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [220, 140]
+      }
+    ],
+    "connections": {
+      "Триггер": { "main": [ [ { "node": "Метрика", "type": "main", "index": 0 } ] ] },
+      "Метрика": { "main": [ [ { "node": "Данные", "type": "main", "index": 0 } ] ] },
+      "Данные": { "main": [ [ { "node": "HTML", "type": "main", "index": 0 } ] ] },
+      "HTML": { "main": [ [ { "node": "Есть график?", "type": "main", "index": 0 } ] ] },
+      "Есть график?": { "main": [ [ { "node": "PNG", "type": "main", "index": 0 } ], [ { "node": "Мало данных", "type": "main", "index": 0 } ] ] },
+      "PNG": { "main": [ [ { "node": "Фото", "type": "main", "index": 0 } ] ] },
+      "Фото": { "main": [ [ { "node": "Ответ агенту", "type": "main", "index": 0 } ] ] }
+    }
+  }
+]

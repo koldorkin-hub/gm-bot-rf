@@ -1,0 +1,151 @@
+[
+  {
+    "id": "ReminderTick01",
+    "name": "Напоминания — отправка по расписанию",
+    "active": true,
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "*/5 * * * *"
+              }
+            ]
+          }
+        },
+        "id": "rt000000-0000-4000-8000-000000000001",
+        "name": "Каждые 5 минут",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -600,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT r.id, r.bot_id, r.user_id, COALESCE(r.chat_id, r.user_id) AS chat_id, r.text,\n       r.repeat_rule, c.bot_token\n  FROM reminder r JOIN clients c ON c.bot_id = r.bot_id\n WHERE r.status = 'pending' AND r.fire_at <= now()\n ORDER BY r.fire_at\n LIMIT 50;",
+          "options": {}
+        },
+        "id": "rt000000-0000-4000-8000-000000000002",
+        "name": "Напоминания: выборка",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          -380,
+          0
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=https://api.telegram.org/bot{{ $json.bot_token }}/sendMessage",
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "chat_id",
+                "value": "={{ $json.chat_id }}"
+              },
+              {
+                "name": "text",
+                "value": "={{ \"⏰ Напоминание\\n\\n\" + $json.text }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 20000,
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "id": "rt000000-0000-4000-8000-000000000003",
+        "name": "Напоминания: отправить",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          -160,
+          0
+        ],
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH done AS (\n  UPDATE reminder SET status = CASE WHEN $3 THEN 'sent' ELSE 'failed' END, sent_at = now()\n   WHERE id = $1 AND status = 'pending'\n   RETURNING bot_id, user_id, chat_id, text, repeat_rule, fire_at\n),\nhist AS (\n  INSERT INTO n8n_chat_histories (session_id, message)\n  SELECT bot_id || ':' || user_id, jsonb_build_object('type','ai','content', $2) FROM done WHERE $3\n),\nnxt AS (\n  INSERT INTO reminder (bot_id, user_id, chat_id, fire_at, text, repeat_rule)\n  SELECT bot_id, user_id, chat_id,\n         CASE repeat_rule WHEN 'daily' THEN fire_at + interval '1 day'\n                          ELSE fire_at + interval '7 days' END,\n         text, repeat_rule\n    FROM done WHERE $3 AND repeat_rule IN ('daily','weekly')\n)\nSELECT 1;",
+          "options": {
+            "queryReplacement": "={{ [ $('Напоминания: выборка').item.json.id, \"⏰ Напоминание\\n\\n\" + $('Напоминания: выборка').item.json.text, ($json.statusCode === 200 && $json.body && $json.body.ok === true) ] }}"
+          }
+        },
+        "id": "rt000000-0000-4000-8000-000000000004",
+        "name": "Напоминания: закрыть",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          60,
+          0
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        },
+        "onError": "continueRegularOutput"
+      }
+    ],
+    "connections": {
+      "Каждые 5 минут": {
+        "main": [
+          [
+            {
+              "node": "Напоминания: выборка",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Напоминания: выборка": {
+        "main": [
+          [
+            {
+              "node": "Напоминания: отправить",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Напоминания: отправить": {
+        "main": [
+          [
+            {
+              "node": "Напоминания: закрыть",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "errorWorkflow": "ErrorNotify00001",
+      "executionTimeout": 300
+    }
+  }
+]

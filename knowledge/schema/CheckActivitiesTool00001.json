@@ -1,0 +1,68 @@
+[
+  {
+    "id": "CheckActivitiesT01",
+    "name": "Инструмент — Проверка активностей",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              { "name": "bot_id", "type": "string" },
+              { "name": "user_id", "type": "number" },
+              { "name": "activities", "type": "string" }
+            ]
+          }
+        },
+        "id": "y1000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-600, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nlet arr = [];\ntry { arr = (typeof d.activities === 'string') ? JSON.parse(d.activities) : (d.activities || []); } catch (e) { arr = []; }\nif (!Array.isArray(arr)) arr = [];\nconst names = arr.map(x => String(x || '').trim()).filter(Boolean);\nreturn [{ json: { bot_id: d.bot_id, user_id: d.user_id, names } }];"
+        },
+        "id": "y1000000-0000-4000-8000-000000000002",
+        "name": "Разобрать",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-360, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT (SELECT json_agg(jsonb_build_object('scope',scope,'value',lower(value))) FROM exclusion WHERE bot_id=$1 AND user_id=$2 AND active) AS exclusions, (SELECT json_agg(jsonb_build_object('name',lower(name),'aliases',aliases,'tags',load_tags)) FROM activity_library) AS library;",
+          "options": {
+            "queryReplacement": "={{ [$json.bot_id, $json.user_id] }}"
+          }
+        },
+        "id": "y1000000-0000-4000-8000-000000000003",
+        "name": "Контекст",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-120, 0],
+        "alwaysOutputData": true,
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "const row = $input.first().json || {};\nconst names = $('Разобрать').first().json.names || [];\nconst asA = v => { if (v == null) return []; if (typeof v === 'string') { try { return JSON.parse(v); } catch (e) { return []; } } return v; };\nconst excl = asA(row.exclusions);\nconst lib = asA(row.library);\nconst exclTags = new Set(excl.filter(e => e.scope === 'load_tag').map(e => String(e.value).toLowerCase()));\nconst exclActs = new Set(excl.filter(e => e.scope === 'activity').map(e => String(e.value).toLowerCase()));\nfunction findLib(name) { const n = name.toLowerCase(); let best = null; for (const a of lib) { const an = String(a.name).toLowerCase(); if (an === n) return a; const al = (a.aliases || []).map(x => String(x).toLowerCase()); if (al.includes(n)) return a; if (!best && (an.includes(n) || n.includes(an))) best = a; } return best; }\nconst results = names.map(nm => { const a = findLib(nm); if (!a) return { activity: nm, status: 'unknown' }; const tags = (a.tags || []).map(t => String(t).toLowerCase()); const badTags = tags.filter(t => exclTags.has(t)); const nameBad = exclActs.has(String(a.name).toLowerCase()); if (badTags.length || nameBad) return { activity: nm, status: 'blocked', reason: nameBad ? 'в списке запрещённых активностей' : ('нагрузка: ' + badTags.join(', ')) }; return { activity: nm, status: 'ok' }; });\nconst blocked = results.filter(r => r.status === 'blocked');\nconst unknown = results.filter(r => r.status === 'unknown');\nconst okList = results.filter(r => r.status === 'ok').map(r => r.activity);\nlet resp;\nif (!excl.length) { resp = 'У клиента НЕТ активных ограничений — проверенные активности допустимы. Всё равно опирайся на здравый смысл и цель.'; }\nelse if (!blocked.length && !unknown.length) { resp = 'ДОПУСТИМЫ по ограничениям клиента: ' + names.join(', ') + '.'; }\nelse { const parts = []; if (blocked.length) parts.push('ЗАПРЕЩЕНЫ (убери из плана и замени на безопасное): ' + blocked.map(b => b.activity + ' [' + b.reason + ']').join('; ')); if (unknown.length) parts.push('НЕТ в библиотеке — проверь вручную по ограничениям клиента: ' + unknown.map(u => u.activity).join(', ')); if (okList.length) parts.push('Допустимы: ' + okList.join(', ')); resp = parts.join('. ') + '.'; }\nreturn [{ json: { response: resp } }];"
+        },
+        "id": "y1000000-0000-4000-8000-000000000004",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [120, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": { "main": [[{ "node": "Разобрать", "type": "main", "index": 0 }]] },
+      "Разобрать": { "main": [[{ "node": "Контекст", "type": "main", "index": 0 }]] },
+      "Контекст": { "main": [[{ "node": "Ответ агенту", "type": "main", "index": 0 }]] }
+    }
+  }
+]

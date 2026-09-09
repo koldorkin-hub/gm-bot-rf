@@ -1,0 +1,66 @@
+[
+  {
+    "id": "CheckAllergTool01",
+    "name": "Инструмент — Проверка аллергенов",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              { "name": "bot_id", "type": "string" },
+              { "name": "user_id", "type": "number" },
+              { "name": "ingredients", "type": "string" }
+            ]
+          }
+        },
+        "id": "a2000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-600, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nlet arr = [];\ntry { arr = (typeof d.ingredients === 'string') ? JSON.parse(d.ingredients) : (d.ingredients || []); } catch (e) { arr = []; }\nif (!Array.isArray(arr)) arr = [];\nconst names = arr.map(x => (x && typeof x === 'object') ? String(x.item || '') : String(x || '')).map(s => s.trim()).filter(Boolean);\nreturn [{ json: { bot_id: d.bot_id, user_id: d.user_id, names } }];"
+        },
+        "id": "a2000000-0000-4000-8000-000000000002",
+        "name": "Разобрать",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-360, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT json_agg(jsonb_build_object('substance',lower(substance),'severity',severity)) AS allergens FROM allergen WHERE bot_id=$1 AND user_id=$2;",
+          "options": { "queryReplacement": "={{ [$json.bot_id, $json.user_id] }}" }
+        },
+        "id": "a2000000-0000-4000-8000-000000000003",
+        "name": "Аллергены",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-120, 0],
+        "alwaysOutputData": true,
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "const names = $('Разобрать').first().json.names || [];\nconst row = $input.first().json || {};\nlet al = row.allergens; if (typeof al === 'string') { try { al = JSON.parse(al); } catch (e) { al = []; } }\nal = al || [];\nif (!al.length) return [{ json: { response: 'У клиента в карте нет аллергий/непереносимостей — ингредиенты по этому критерию допустимы. Всё равно опирайся на здравый смысл.' } }];\nconst hits = [];\nfor (const nm of names) { const n = String(nm).toLowerCase(); for (const a of al) { if (a.substance && n.indexOf(a.substance) !== -1) hits.push({ ing: nm, allergen: a.substance, severity: a.severity }); } }\nif (!hits.length) return [{ json: { response: 'Аллергенов клиента в ингредиентах НЕ найдено (по явным вхождениям). ВНИМАНИЕ: скрытые аллергены в составных продуктах (марципан→миндаль и т.п.) так не ловятся — при серьёзной аллергии добавь оговорку клиенту.' } }];\nconst block = hits.filter(h => h.severity === 'allergy');\nconst warn = hits.filter(h => h.severity === 'intolerance');\nconst parts = [];\nif (block.length) parts.push('БЛОКИРОВКА (аллергия!): ' + block.map(h => h.ing + ' → ' + h.allergen).join('; ') + '. НЕ предлагай этот рецепт, замени ингредиент на безопасный.');\nif (warn.length) parts.push('Предупреждение (непереносимость): ' + warn.map(h => h.ing + ' → ' + h.allergen).join('; ') + '. Предупреди клиента или замени.');\nreturn [{ json: { response: parts.join(' ') } }];"
+        },
+        "id": "a2000000-0000-4000-8000-000000000004",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [120, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": { "main": [[{ "node": "Разобрать", "type": "main", "index": 0 }]] },
+      "Разобрать": { "main": [[{ "node": "Аллергены", "type": "main", "index": 0 }]] },
+      "Аллергены": { "main": [[{ "node": "Ответ агенту", "type": "main", "index": 0 }]] }
+    }
+  }
+]

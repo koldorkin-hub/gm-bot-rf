@@ -1,0 +1,80 @@
+[
+  {
+    "id": "SaveHealthTool001",
+    "name": "Инструмент — Здоровье",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              { "name": "bot_id", "type": "string" },
+              { "name": "user_id", "type": "number" },
+              { "name": "kind", "type": "string" },
+              { "name": "payload", "type": "string" },
+              { "name": "confirmed", "type": "boolean" }
+            ]
+          }
+        },
+        "id": "h1000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-600, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nconst kind = String(d.kind || '').trim();\nlet p = {};\ntry { p = (typeof d.payload === 'string') ? JSON.parse(d.payload) : (d.payload || {}); } catch (e) { p = {}; }\nif (typeof p !== 'object' || p === null || Array.isArray(p)) p = {};\nconst conf = d.confirmed === true || d.confirmed === 'true' || d.confirmed === 1;\nconst B = d.bot_id, U = d.user_id;\nconst nn = v => (v === undefined || v === '' ? null : v);\nlet query, params, label;\nif (kind === 'allergen') {\n  if (!p.substance) throw new Error('allergen без substance');\n  query = 'INSERT INTO allergen (bot_id,user_id,substance,severity,confirmed) VALUES ($1,$2,$3,$4,$5) RETURNING id';\n  params = [B, U, String(p.substance).trim(), (p.severity === 'intolerance' ? 'intolerance' : 'allergy'), conf];\n  label = 'аллерген: ' + p.substance + ' (' + (p.severity === 'intolerance' ? 'непереносимость' : 'аллергия') + ')';\n} else if (kind === 'preference') {\n  if (!p.item) throw new Error('preference без item');\n  query = 'INSERT INTO food_preference (bot_id,user_id,item,stance) VALUES ($1,$2,$3,$4) RETURNING id';\n  params = [B, U, String(p.item).trim(), (p.stance === 'dislike' ? 'dislike' : 'like')];\n  label = 'предпочтение: ' + p.item + ' (' + (p.stance === 'dislike' ? 'не любит' : 'любит') + ')';\n} else if (kind === 'condition') {\n  if (!p.name) throw new Error('condition без name');\n  query = 'INSERT INTO condition (bot_id,user_id,name,since,confirmed) VALUES ($1,$2,$3,$4::date,$5) RETURNING id';\n  params = [B, U, String(p.name).trim(), nn(p.since), conf];\n  label = 'состояние: ' + p.name;\n} else if (kind === 'injury') {\n  if (!p.area) throw new Error('injury без area');\n  const st = ['active','rehab','resolved'].includes(p.status) ? p.status : 'active';\n  query = 'INSERT INTO injury (bot_id,user_id,area,status,since,confirmed) VALUES ($1,$2,$3,$4,$5::date,$6) RETURNING id';\n  params = [B, U, String(p.area).trim(), st, nn(p.since), conf];\n  label = 'травма: ' + p.area + ' (' + st + ')';\n} else if (kind === 'medication') {\n  if (!p.name) throw new Error('medication без name');\n  query = 'INSERT INTO medication (bot_id,user_id,name,dose,schedule,reason,started_on,confirmed) VALUES ($1,$2,$3,$4,$5,$6,$7::date,$8) RETURNING id';\n  params = [B, U, String(p.name).trim(), nn(p.dose), nn(p.schedule), nn(p.reason), nn(p.started_on), conf];\n  label = 'препарат: ' + p.name;\n} else {\n  throw new Error('неизвестный kind: ' + kind);\n}\nreturn [{ json: { query, params, label, confirmed: conf } }];"
+        },
+        "id": "h1000000-0000-4000-8000-000000000002",
+        "name": "Собрать запрос",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-360, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "={{ $json.query }}",
+          "options": {
+            "queryReplacement": "={{ $json.params }}"
+          }
+        },
+        "id": "h1000000-0000-4000-8000-000000000003",
+        "name": "Записать факт",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-120, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "r1",
+                "name": "response",
+                "value": "={{ 'Сохранил в карту здоровья — ' + $('Собрать запрос').first().json.label + ' (id ' + ($('Записать факт').first().json.id || '?') + ')' + ($('Собрать запрос').first().json.confirmed ? '' : ' (не подтверждено, уточни у клиента)') }}",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": false,
+          "options": {}
+        },
+        "id": "h1000000-0000-4000-8000-000000000004",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [120, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": { "main": [[{ "node": "Собрать запрос", "type": "main", "index": 0 }]] },
+      "Собрать запрос": { "main": [[{ "node": "Записать факт", "type": "main", "index": 0 }]] },
+      "Записать факт": { "main": [[{ "node": "Ответ агенту", "type": "main", "index": 0 }]] }
+    }
+  }
+]

@@ -1,0 +1,154 @@
+[
+  {
+    "updatedAt": "2026-08-15T18:21:37.000Z",
+    "createdAt": "2026-07-20T14:55:00.843Z",
+    "id": "ErrorNotify00001",
+    "name": "Сбой — уведомление владельцу",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "e1000000-0000-4000-8000-000000000001",
+        "name": "Error Trigger",
+        "type": "n8n-nodes-base.errorTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Узел Telegram умеет только Markdown/HTML, режима «без разметки» у него нет.\n// Текст ошибки произвольный: в нём встречаются &, <, >, подчёркивания — на них\n// Telegram отбрасывает сообщение целиком с 400, и тревога молча теряется.\n// Поэтому экранируем всё, что ломает HTML-разбор.\nconst esc = (v) => String(v == null ? '—' : v)\n  .replace(/&/g, '&amp;')\n  .replace(/</g, '&lt;')\n  .replace(/>/g, '&gt;');\n\nconst j = $input.first().json || {};\nconst ex = j.execution || {};\nconst wf = j.workflow || {};\n\nconst text = [\n  '\\u{1F6A8} Сбой в n8n',\n  '',\n  'Workflow: ' + esc(wf.name),\n  'Узел: ' + esc(ex.lastNodeExecuted),\n  'Режим: ' + esc(ex.mode),\n  '',\n  'Ошибка:',\n  esc(String(ex.error && ex.error.message || 'без описания').slice(0, 600)),\n  '',\n  'Запуск: ' + esc(ex.url || ex.id),\n].join('\\n');\n\nreturn [{ json: { text } }];"
+        },
+        "id": "e1000000-0000-4000-8000-000000000003",
+        "name": "Собрать безопасный текст",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "chatId": "255171226",
+          "text": "={{ $json.text }}",
+          "additionalFields": {
+            "appendAttribution": false,
+            "parse_mode": "HTML"
+          }
+        },
+        "id": "e1000000-0000-4000-8000-000000000002",
+        "name": "Написать владельцу",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          460,
+          0
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "SupportTg0000001",
+            "name": "Telegram Support Bot"
+          }
+        },
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 3000
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO ops_error (workflow_name, node_name, message) VALUES ($1, $2, $3);",
+          "options": {
+            "queryReplacement": "={{ [ ($json.workflow && $json.workflow.name) || '?', ($json.execution && $json.execution.lastNodeExecuted) || '?', String(($json.execution && $json.execution.error && $json.execution.error.message) || 'без описания').slice(0,500) ] }}"
+          }
+        },
+        "id": "e1000000-0000-4000-8000-000000000004",
+        "name": "Журнал сбоя",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          220,
+          200
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        },
+        "onError": "continueRegularOutput"
+      }
+    ],
+    "connections": {
+      "Error Trigger": {
+        "main": [
+          [
+            {
+              "node": "Собрать безопасный текст",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Журнал сбоя",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Собрать безопасный текст": {
+        "main": [
+          [
+            {
+              "node": "Написать владельцу",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "staticData": null,
+    "meta": null,
+    "nodeGroups": [],
+    "pinData": null,
+    "versionId": "3c9c224e-3e8c-447a-bf41-f4f66e939526",
+    "activeVersionId": "3c9c224e-3e8c-447a-bf41-f4f66e939526",
+    "versionCounter": 3,
+    "triggerCount": 0,
+    "sourceWorkflowId": null,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-07-20T14:55:00.848Z",
+        "createdAt": "2026-07-20T14:55:00.848Z",
+        "role": "workflow:owner",
+        "workflowId": "ErrorNotify00001",
+        "projectId": "aeezIZ8IOn3uHQp8",
+        "project": {
+          "updatedAt": "2026-06-27T10:22:49.126Z",
+          "createdAt": "2026-06-27T10:15:58.391Z",
+          "id": "aeezIZ8IOn3uHQp8",
+          "name": "Andrey Koldorkin <andreicros@proton.me>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "customTelemetryTags": [],
+          "creatorId": "5ebf5692-854f-4f37-a2cd-09eaa9ace37e"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
+    }
+  }
+]

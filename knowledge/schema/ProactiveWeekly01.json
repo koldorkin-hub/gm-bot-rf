@@ -1,0 +1,108 @@
+[
+  {
+    "id": "ProactiveWeekly01",
+    "name": "Проактив — недельная сводка",
+    "active": false,
+    "settings": { "executionOrder": "v1", "errorWorkflow": "ErrorNotify00001", "executionTimeout": 300 },
+    "nodes": [
+      {
+        "parameters": { "rule": { "interval": [ { "field": "cronExpression", "expression": "0 11 * * 1" } ] } },
+        "id": "pw-0000-0000-0000-000000000001",
+        "name": "Понедельник 11:00",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [-820, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT cp.bot_id, cp.user_id, cp.user_id AS chat_id, c.bot_token, COALESCE(NULLIF(cp.display_name,''),'') AS name, COALESCE(NULLIF(cp.language,''),'Russian') AS language,\n (SELECT count(*) FROM workout_session ws WHERE ws.bot_id=cp.bot_id AND ws.user_id=cp.user_id AND ws.performed_on >= (now()-interval '7 days')::date) AS workouts,\n COALESCE((SELECT round(sum(e.reps*e.weight_kg)) FROM workout_entry e JOIN workout_session ws ON e.session_id=ws.id WHERE ws.bot_id=cp.bot_id AND ws.user_id=cp.user_id AND ws.performed_on >= (now()-interval '7 days')::date AND e.kind='strength' AND e.reps IS NOT NULL AND e.weight_kg IS NOT NULL),0) AS str_vol,\n COALESCE((SELECT round(sum(e.reps*e.weight_kg)) FROM workout_entry e JOIN workout_session ws ON e.session_id=ws.id WHERE ws.bot_id=cp.bot_id AND ws.user_id=cp.user_id AND ws.performed_on >= (now()-interval '14 days')::date AND ws.performed_on < (now()-interval '7 days')::date AND e.kind='strength' AND e.reps IS NOT NULL AND e.weight_kg IS NOT NULL),0) AS str_vol_prev,\n COALESCE((SELECT round((sum(e.distance_m)/1000.0)::numeric,1) FROM workout_entry e JOIN workout_session ws ON e.session_id=ws.id WHERE ws.bot_id=cp.bot_id AND ws.user_id=cp.user_id AND ws.performed_on >= (now()-interval '7 days')::date AND e.kind='cardio' AND e.distance_m IS NOT NULL),0) AS cardio_km,\n (SELECT count(DISTINCT eaten_on) FROM food_log fl WHERE fl.bot_id=cp.bot_id AND fl.user_id=cp.user_id AND fl.eaten_on >= (now()-interval '7 days')::date) AS food_days,\n (SELECT round(sum(kcal)/NULLIF(count(DISTINCT eaten_on),0)) FROM food_log fl WHERE fl.bot_id=cp.bot_id AND fl.user_id=cp.user_id AND fl.eaten_on >= (now()-interval '7 days')::date AND kcal IS NOT NULL) AS kcal_day,\n (SELECT round(sum(protein_g)/NULLIF(count(DISTINCT eaten_on),0)) FROM food_log fl WHERE fl.bot_id=cp.bot_id AND fl.user_id=cp.user_id AND fl.eaten_on >= (now()-interval '7 days')::date AND protein_g IS NOT NULL) AS prot_day,\n (SELECT value FROM measurement m WHERE m.bot_id=cp.bot_id AND m.user_id=cp.user_id AND m.metric IN ('вес','weight') ORDER BY measured_on DESC LIMIT 1) AS weight_now,\n (SELECT value FROM measurement m WHERE m.bot_id=cp.bot_id AND m.user_id=cp.user_id AND m.metric IN ('вес','weight') AND m.measured_on <= (now()-interval '6 days')::date ORDER BY measured_on DESC LIMIT 1) AS weight_prev\nFROM client_profile cp JOIN clients c ON c.bot_id=cp.bot_id\nWHERE cp.proactive_enabled = true AND cp.onboarding_done = true AND c.bot_type IN ('client','trusted','owner')\n AND NOT EXISTS (SELECT 1 FROM proactive_log pl WHERE pl.bot_id=cp.bot_id AND pl.user_id=cp.user_id AND pl.kind='weekly' AND pl.sent_at >= now()-interval '6 days')\n AND ( (SELECT count(*) FROM workout_session ws WHERE ws.bot_id=cp.bot_id AND ws.user_id=cp.user_id AND ws.performed_on >= (now()-interval '7 days')::date) > 0\n    OR (SELECT count(*) FROM food_log fl WHERE fl.bot_id=cp.bot_id AND fl.user_id=cp.user_id AND fl.eaten_on >= (now()-interval '7 days')::date) > 0\n    OR (SELECT count(*) FROM measurement m WHERE m.bot_id=cp.bot_id AND m.user_id=cp.user_id AND m.measured_on >= (now()-interval '7 days')::date) > 0 );",
+          "options": {}
+        },
+        "id": "pw-0000-0000-0000-000000000002",
+        "name": "Кандидаты",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-600, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "const items = $input.all();\nconst out = [];\nfor (let i = 0; i < items.length; i++) {\n  const d = items[i].json;\n  const w = Number(d.workouts||0);\n  const facts = [];\n  if (d.name) facts.push('Имя клиента: ' + d.name);\n  facts.push('Тренировок за неделю: ' + w);\n  if (Number(d.str_vol||0) > 0) { let s = 'Силовой объём: ' + d.str_vol + ' кг'; if (Number(d.str_vol_prev||0) > 0) s += ' (прошлая неделя ' + d.str_vol_prev + ' кг)'; facts.push(s); }\n  if (Number(d.cardio_km||0) > 0) facts.push('Кардио: ' + d.cardio_km + ' км');\n  if (Number(d.food_days||0) > 0) { let s = 'Дней с дневником питания: ' + d.food_days; if (d.kcal_day != null) s += ', в среднем ' + d.kcal_day + ' ккал/день'; if (d.prot_day != null) s += ', белок ' + d.prot_day + ' г/день'; facts.push(s); }\n  if (d.weight_now != null) { let s = 'Текущий вес: ' + d.weight_now + ' кг'; if (d.weight_prev != null) s += ' (неделю назад ' + d.weight_prev + ' кг)'; facts.push(s); }\n  const lang = String(d.language || 'Russian');\n  const system = 'Ты — заботливый персональный фитнес-тренер. Напиши клиенту короткую тёплую НЕДЕЛЬНУЮ СВОДКУ его прогресса. ПИШИ СТРОГО НА ЯЗЫКЕ: ' + lang + ' (весь текст на этом языке). Используй ТОЛЬКО факты из списка ниже — не выдумывай и не добавляй чисел, которых нет. Тон поддерживающий; хвали за ПОСТОЯНСТВО и усилия, НЕ дави на снижение веса (вес упоминай нейтрально, как факт, без оценок «молодец что похудел»). 3-6 строк, можно эмодзи. Не пиши вступлений вроде «вот твоя сводка» — сразу обращайся к клиенту по делу. В конце мягко пригласи написать, если нужна корректировка.';\n  const user = 'Факты за неделю:\\n' + facts.join('\\n');\n  const payload = { model: 'claude-haiku-4-5-20251001', max_tokens: 500, system: system, messages: [{ role: 'user', content: user }] };\n  out.push({ json: { bot_id: d.bot_id, user_id: d.user_id, chat_id: d.chat_id, bot_token: d.bot_token, payload: payload }, pairedItem: { item: i } });\n}\nreturn out;"
+        },
+        "id": "pw-0000-0000-0000-000000000003",
+        "name": "Промпт",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-380, 0]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.anthropic.com/v1/messages",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "anthropicApi",
+          "sendHeaders": true,
+          "headerParameters": { "parameters": [ { "name": "anthropic-version", "value": "2023-06-01" }, { "name": "content-type", "value": "application/json" } ] },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify($json.payload) }}",
+          "options": { "timeout": 30000, "retry": { "retry": { "maxTries": 2, "waitBetweenTries": 2000 } } }
+        },
+        "id": "pw-0000-0000-0000-000000000004",
+        "name": "Генерировать",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [-160, 0],
+        "credentials": { "anthropicApi": { "id": "J8w0oAhcMJCaC4PY", "name": "Anthropic account" } },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "const inp = $input.all();\nconst prompts = $('Промпт').all();\nconst out = [];\nfor (let i = 0; i < inp.length; i++) {\n  const r = inp[i].json; const p = prompts[i].json;\n  let text = '';\n  try { text = r.content[0].text; } catch (e) { text = ''; }\n  text = String(text || '').trim();\n  if (!text) continue;\n  out.push({ json: { bot_id: p.bot_id, user_id: p.user_id, chat_id: p.chat_id, bot_token: p.bot_token, text: text }, pairedItem: { item: i } });\n}\nreturn out;"
+        },
+        "id": "pw-0000-0000-0000-000000000005",
+        "name": "Разобрать",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [60, 0]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=https://api.telegram.org/bot{{ $json.bot_token }}/sendMessage",
+          "sendBody": true,
+          "bodyParameters": { "parameters": [ { "name": "chat_id", "value": "={{ $json.chat_id }}" }, { "name": "text", "value": "={{ $json.text }}" } ] },
+          "options": { "timeout": 20000 }
+        },
+        "id": "pw-0000-0000-0000-000000000006",
+        "name": "Отправить",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [280, 0],
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO proactive_log (bot_id, user_id, kind) VALUES ($1, $2, 'weekly');",
+          "options": { "queryReplacement": "={{ [ $('Разобрать').item.json.bot_id, $('Разобрать').item.json.user_id ] }}" }
+        },
+        "id": "pw-0000-0000-0000-000000000007",
+        "name": "Залогировать",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [500, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      }
+    ],
+    "connections": {
+      "Понедельник 11:00": { "main": [ [ { "node": "Кандидаты", "type": "main", "index": 0 } ] ] },
+      "Кандидаты": { "main": [ [ { "node": "Промпт", "type": "main", "index": 0 } ] ] },
+      "Промпт": { "main": [ [ { "node": "Генерировать", "type": "main", "index": 0 } ] ] },
+      "Генерировать": { "main": [ [ { "node": "Разобрать", "type": "main", "index": 0 } ] ] },
+      "Разобрать": { "main": [ [ { "node": "Отправить", "type": "main", "index": 0 } ] ] },
+      "Отправить": { "main": [ [ { "node": "Залогировать", "type": "main", "index": 0 } ] ] }
+    }
+  }
+]

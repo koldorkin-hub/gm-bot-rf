@@ -1,0 +1,52 @@
+[
+  {
+    "id": "PhotoBatchSweep1",
+    "name": "Фото-пачки — свип по таймауту",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": { "rule": { "interval": [ { "field": "seconds", "secondsInterval": 30 } ] } },
+        "id": "fa000000-0000-4000-8000-000000000001",
+        "name": "Каждые 30с",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [-400, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT pb.bot_id, pb.user_id, pb.chat_id, c.webhook_secret FROM photo_batch pb JOIN clients c ON c.bot_id = pb.bot_id WHERE pb.last_file_at < now() - interval '60 seconds' OR pb.created_at < now() - interval '10 minutes';"
+        },
+        "id": "fa000000-0000-4000-8000-000000000002",
+        "name": "Найти зависшие",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-180, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "=http://127.0.0.1:5678/webhook/904e1298-08ed-4687-b7f7-3505bfb377b9/trainer/{{ $json.bot_id }}",
+          "sendHeaders": true,
+          "headerParameters": { "parameters": [ { "name": "X-Telegram-Bot-Api-Secret-Token", "value": "={{ $json.webhook_secret }}" } ] },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={{ JSON.stringify({ update_id: 1, message: { message_id: 1, from: { id: $json.user_id, is_bot: false, first_name: 'sweep' }, chat: { id: $json.chat_id, type: 'private' }, date: 1, text: 'готово' } }) }}",
+          "options": { "timeout": 15000 }
+        },
+        "id": "fa000000-0000-4000-8000-000000000003",
+        "name": "Инъекция готово",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [40, 0],
+        "onError": "continueRegularOutput"
+      }
+    ],
+    "connections": {
+      "Каждые 30с": { "main": [[{ "node": "Найти зависшие", "type": "main", "index": 0 }]] },
+      "Найти зависшие": { "main": [[{ "node": "Инъекция готово", "type": "main", "index": 0 }]] }
+    }
+  }
+]

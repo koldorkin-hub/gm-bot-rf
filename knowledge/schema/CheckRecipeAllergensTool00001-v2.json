@@ -1,0 +1,66 @@
+[
+  {
+    "id": "CheckAllergTool01",
+    "name": "Инструмент — Проверка аллергенов",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              { "name": "bot_id", "type": "string" },
+              { "name": "user_id", "type": "number" },
+              { "name": "ingredients", "type": "string" }
+            ]
+          }
+        },
+        "id": "a2000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-600, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nlet arr = [];\ntry { arr = (typeof d.ingredients === 'string') ? JSON.parse(d.ingredients) : (d.ingredients || []); } catch (e) { arr = []; }\nif (!Array.isArray(arr)) arr = [];\nconst names = arr.map(x => (x && typeof x === 'object') ? String(x.item || '') : String(x || '')).map(s => s.trim()).filter(Boolean);\nreturn [{ json: { bot_id: d.bot_id, user_id: d.user_id, names } }];"
+        },
+        "id": "a2000000-0000-4000-8000-000000000002",
+        "name": "Разобрать",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-360, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT\n (SELECT json_agg(jsonb_build_object('substance',lower(substance),'severity',severity)) FROM allergen WHERE bot_id=$1 AND user_id=$2) AS allergens,\n (SELECT json_agg(jsonb_build_object('group_key',group_key,'title_ru',title_ru,'synonyms',synonyms)) FROM allergen_group) AS groups,\n (SELECT json_agg(jsonb_build_object('food_term',lower(food_term),'group_key',group_key)) FROM food_allergen) AS foods;",
+          "options": { "queryReplacement": "={{ [$json.bot_id, $json.user_id] }}" }
+        },
+        "id": "a2000000-0000-4000-8000-000000000003",
+        "name": "Аллергены",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-120, 0],
+        "alwaysOutputData": true,
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "const names = $('Разобрать').first().json.names || [];\nconst row = $input.first().json || {};\nfunction pj(v){ if (typeof v === 'string'){ try { return JSON.parse(v); } catch(e){ return []; } } return v || []; }\nlet allergens = pj(row.allergens) || [];\nlet groups = pj(row.groups) || [];\nlet foods = pj(row.foods) || [];\nif (!allergens.length) return [{ json: { response: 'У клиента в карте нет аллергий/непереносимостей — по этому критерию ограничений нет. Всё равно опирайся на состав продукта и здравый смысл.' } }];\nconst norm = s => String(s||'').toLowerCase().trim();\nconst sevRank = { allergy: 2, intolerance: 1 };\n// синонимы и названия групп\nconst groupSyn = {}; const groupTitle = {};\nfor (const g of groups) { groupSyn[g.group_key] = (g.synonyms||[]).map(norm); groupTitle[g.group_key] = g.title_ru || g.group_key; }\n// свести аллергены клиента к категориям (+ сохранить сырьё для прямого матча)\nconst clientGroups = {}; const clientRaw = [];\nfor (const a of allergens) {\n  const sub = norm(a.substance); if (!sub) continue;\n  clientRaw.push({ substance: sub, severity: a.severity });\n  for (const gk in groupSyn) {\n    let hit = false;\n    for (const sy of groupSyn[gk]) { if (!sy) continue; if (sub === sy || sub.indexOf(sy) !== -1 || sy.indexOf(sub) !== -1) { hit = true; break; } }\n    if (hit && (!clientGroups[gk] || sevRank[a.severity] > sevRank[clientGroups[gk]])) clientGroups[gk] = a.severity;\n  }\n}\n// матч ингредиентов\nconst hits = [];\nfor (const nmRaw of names) {\n  const nm = norm(nmRaw); if (!nm) continue;\n  // 1. прямое вхождение сырья аллергена\n  for (const c of clientRaw) { if (c.substance && nm.indexOf(c.substance) !== -1) hits.push({ ing: nmRaw, label: c.substance, severity: c.severity }); }\n  // 2. категория по синониму группы в названии (напр. 'миндаль')\n  for (const gk in clientGroups) { for (const sy of (groupSyn[gk]||[])) { if (sy && nm.indexOf(sy) !== -1) { hits.push({ ing: nmRaw, label: groupTitle[gk], severity: clientGroups[gk] }); break; } } }\n  // 3. составной продукт по карте food_allergen\n  for (const f of foods) { const ft = norm(f.food_term); if (!ft) continue; if ((nm.indexOf(ft) !== -1 || ft.indexOf(nm) !== -1) && clientGroups[f.group_key]) hits.push({ ing: nmRaw, label: groupTitle[f.group_key], severity: clientGroups[f.group_key] }); }\n}\n// дедуп по ing+label\nconst seen = new Set(); const uniq = [];\nfor (const h of hits) { const k = norm(h.ing)+'|'+norm(h.label); if (!seen.has(k)) { seen.add(k); uniq.push(h); } }\nconst block = uniq.filter(h => h.severity === 'allergy');\nconst warn = uniq.filter(h => h.severity === 'intolerance');\nconst parts = [];\nif (block.length) parts.push('БЛОКИРОВКА (аллергия!): ' + block.map(h => h.ing + ' → ' + h.label).join('; ') + '. НЕ предлагай это клиенту, замени на безопасное.');\nif (warn.length) parts.push('Предупреждение (непереносимость): ' + warn.map(h => h.ing + ' → ' + h.label).join('; ') + '. Предупреди клиента явно или замени.');\nif (!parts.length) parts.push('Совпадений с аллергенами клиента не найдено (проверены прямые вхождения, категории — орехи, молоко, рыба и т.п. — и составные продукты по справочнику). ВАЖНО: справочник не полон. Если состав неизвестен или продукт может скрыто содержать аллерген клиента — не утверждай «можно», предупреди и предложи уточнить состав.');\nreturn [{ json: { response: parts.join(' ') } }];"
+        },
+        "id": "a2000000-0000-4000-8000-000000000004",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [120, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": { "main": [[{ "node": "Разобрать", "type": "main", "index": 0 }]] },
+      "Разобрать": { "main": [[{ "node": "Аллергены", "type": "main", "index": 0 }]] },
+      "Аллергены": { "main": [[{ "node": "Ответ агенту", "type": "main", "index": 0 }]] }
+    }
+  }
+]

@@ -1,0 +1,225 @@
+[
+  {
+    "updatedAt": "2026-07-30T21:57:39.000Z",
+    "createdAt": "2026-07-30T21:49:22.586Z",
+    "id": "MeasureTool00001",
+    "name": "Инструмент — Измерение",
+    "description": null,
+    "active": true,
+    "isArchived": false,
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              {
+                "name": "bot_id",
+                "type": "string"
+              },
+              {
+                "name": "user_id",
+                "type": "number"
+              },
+              {
+                "name": "metric",
+                "type": "string"
+              },
+              {
+                "name": "value",
+                "type": "number"
+              },
+              {
+                "name": "unit",
+                "type": "string"
+              },
+              {
+                "name": "measured_on",
+                "type": "string"
+              },
+              {
+                "name": "items",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "id": "m1000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -600,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nconst today = new Date().toISOString().slice(0, 10);\n\nconst one = (m) => {\n  const metric = String(m.metric || '').trim();\n  if (!metric) throw new Error('metric пуст');\n  const value = Number(m.value);\n  if (!isFinite(value)) throw new Error('value не число - ' + m.value);\n  let mo = String(m.measured_on || '').trim();\n  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(mo)) mo = today;\n  if (mo > today) mo = today; // будущая дата = ошибка модели, ставим сегодня\n  const unit = String(m.unit || '').trim() || null;\n  return { bot_id: d.bot_id, user_id: d.user_id, metric, value, unit, measured_on: mo };\n};\n\n// Пачка: агент шлёт список за один вызов (панель анализов, серия замеров).\n// Без этого он писал по одному и упирался в потолок шагов.\nlet list;\nconst rawItems = (d.items === undefined || d.items === null) ? '' : d.items;\nif (String(rawItems).trim() !== '' && String(rawItems).trim() !== '[]') {\n  let arr = rawItems;\n  try { if (typeof arr === 'string') arr = JSON.parse(arr); } catch (e) { throw new Error('items не разобрался как JSON'); }\n  if (!Array.isArray(arr)) throw new Error('items должен быть списком объектов');\n  if (!arr.length) throw new Error('items пуст');\n  if (arr.length > 50) throw new Error('слишком много показателей за раз - максимум 50');\n  list = arr.map(one);\n} else {\n  list = [one(d)];\n}\nreturn list.map((json) => ({ json }));"
+        },
+        "id": "m1000000-0000-4000-8000-000000000002",
+        "name": "Нормализовать",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -360,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO measurement (bot_id, user_id, measured_on, metric, value, unit, source) VALUES ($1, $2, $3::date, $4, $5::numeric, $6, 'client');",
+          "options": {
+            "queryReplacement": "={{ [$json.bot_id, $json.user_id, $json.measured_on, $json.metric, $json.value, $json.unit] }}"
+          }
+        },
+        "id": "m1000000-0000-4000-8000-000000000003",
+        "name": "Вставить измерение",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          -120,
+          0
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "UPDATE client_profile SET current_weight_kg = $3::numeric, current_weight_on = $4::date, updated_at = now() WHERE bot_id = $1 AND user_id = $2 AND $5 = 'weight';",
+          "options": {
+            "queryReplacement": "={{ [$('Нормализовать').item.json.bot_id, $('Нормализовать').item.json.user_id, $('Нормализовать').item.json.value, $('Нормализовать').item.json.measured_on, $('Нормализовать').item.json.metric] }}"
+          }
+        },
+        "id": "m1000000-0000-4000-8000-000000000004",
+        "name": "Снимок веса в профиль",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          120,
+          0
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "r1",
+                "name": "response",
+                "value": "={{ 'Записал в трекинг: ' + $('Нормализовать').all().map(i => i.json.metric + ' = ' + i.json.value + (i.json.unit ? ' ' + i.json.unit : '') + ' (' + i.json.measured_on + ')').join('; ') }}",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": false,
+          "options": {}
+        },
+        "id": "m1000000-0000-4000-8000-000000000005",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [
+          360,
+          0
+        ],
+        "executeOnce": true
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": {
+        "main": [
+          [
+            {
+              "node": "Нормализовать",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Нормализовать": {
+        "main": [
+          [
+            {
+              "node": "Вставить измерение",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Вставить измерение": {
+        "main": [
+          [
+            {
+              "node": "Снимок веса в профиль",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Снимок веса в профиль": {
+        "main": [
+          [
+            {
+              "node": "Ответ агенту",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "staticData": null,
+    "meta": null,
+    "nodeGroups": [],
+    "pinData": null,
+    "versionId": "cfc055ad-6c72-4084-ba45-c9a0f82d17ec",
+    "activeVersionId": "cfc055ad-6c72-4084-ba45-c9a0f82d17ec",
+    "versionCounter": 2,
+    "triggerCount": 0,
+    "sourceWorkflowId": null,
+    "tags": [],
+    "shared": [
+      {
+        "updatedAt": "2026-07-30T21:49:22.591Z",
+        "createdAt": "2026-07-30T21:49:22.591Z",
+        "role": "workflow:owner",
+        "workflowId": "MeasureTool00001",
+        "projectId": "aeezIZ8IOn3uHQp8",
+        "project": {
+          "updatedAt": "2026-06-27T10:22:49.126Z",
+          "createdAt": "2026-06-27T10:15:58.391Z",
+          "id": "aeezIZ8IOn3uHQp8",
+          "name": "Andrey Koldorkin <andreicros@proton.me>",
+          "type": "personal",
+          "icon": null,
+          "description": null,
+          "customTelemetryTags": [],
+          "creatorId": "5ebf5692-854f-4f37-a2cd-09eaa9ace37e"
+        }
+      }
+    ],
+    "versionMetadata": {
+      "name": null,
+      "description": null
+    }
+  }
+]

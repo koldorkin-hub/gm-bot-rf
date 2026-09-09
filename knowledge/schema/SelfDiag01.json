@@ -1,0 +1,334 @@
+[
+  {
+    "id": "SelfDiag000001",
+    "name": "Диагностика — проверка системы",
+    "active": false,
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              {
+                "name": "source",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "id": "dg000000-0000-4000-8000-000000000001",
+        "name": "Запуск",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -820,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT\n  to_char(now(),'YYYY-MM-DD HH24:MI:SS') AS now_utc,\n  (SELECT max(created_at) FROM n8n_chat_histories) AS last_msg_at,\n  COALESCE(round(EXTRACT(epoch FROM now() - (SELECT max(created_at) FROM n8n_chat_histories))/60)::int, -1) AS silence_min,\n  (SELECT count(*) FROM n8n_chat_histories WHERE created_at > now() - interval '24 hours') AS msgs_24h,\n  (SELECT count(*) FROM ops_error WHERE at > now() - interval '1 hour') AS err_1h,\n  (SELECT count(*) FROM ops_error WHERE at > now() - interval '24 hours') AS err_24h,\n  (SELECT string_agg(w || ' x' || c, ', ') FROM (SELECT COALESCE(workflow_name,'?') AS w, count(*) AS c\n     FROM ops_error WHERE at > now() - interval '24 hours' GROUP BY 1 ORDER BY 2 DESC LIMIT 5) t) AS err_top,\n  (SELECT left(message,200) FROM ops_error ORDER BY at DESC LIMIT 1) AS err_last,\n  (SELECT count(*) FROM research_state WHERE stage='running' AND started_at < now() - interval '25 minutes') AS research_orphans,\n  (SELECT count(*) FROM batch_busy WHERE started_at < now() - interval '10 minutes') AS batch_orphans,\n  (SELECT count(*) FROM user_access WHERE access_until >= current_date\n     AND NOT (user_id >= 999000 AND user_id < 1000000)) AS active_access,\n  (SELECT count(*) FROM feedback WHERE digested_at IS NULL) AS feedback_new;",
+          "options": {}
+        },
+        "id": "dg000000-0000-4000-8000-000000000002",
+        "name": "Диаг: база",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          -600,
+          0
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.anthropic.com/v1/messages",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "anthropicApi",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "anthropic-version",
+                "value": "2023-06-01"
+              },
+              {
+                "name": "content-type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "{\"model\":\"claude-haiku-4-5-20251001\",\"max_tokens\":1,\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}",
+          "options": {
+            "timeout": 12000,
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "id": "dg000000-0000-4000-8000-000000000003",
+        "name": "Диаг: anthropic",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          -380,
+          0
+        ],
+        "credentials": {
+          "anthropicApi": {
+            "id": "J8w0oAhcMJCaC4PY",
+            "name": "Anthropic account"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "method": "GET",
+          "url": "https://n8n.exlogist.com/healthz",
+          "options": {
+            "timeout": 8000,
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "id": "dg000000-0000-4000-8000-000000000004",
+        "name": "Диаг: сайт",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          -160,
+          0
+        ],
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "method": "GET",
+          "url": "https://api.groq.com/openai/v1/models",
+          "authentication": "genericCredentialType",
+          "genericAuthType": "httpHeaderAuth",
+          "options": {
+            "timeout": 8000,
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "id": "dg000000-0000-4000-8000-000000000005",
+        "name": "Диаг: groq",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          60,
+          0
+        ],
+        "credentials": {
+          "httpHeaderAuth": {
+            "id": "GroqHdrAuth00001",
+            "name": "Groq Header Auth"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "method": "GET",
+          "url": "http://gotenberg:3000/health",
+          "options": {
+            "timeout": 6000,
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "id": "dg000000-0000-4000-8000-000000000006",
+        "name": "Диаг: gotenberg",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          280,
+          0
+        ],
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "SELECT bot_id AS label, bot_username, bot_token FROM clients\n  WHERE status='active' AND length(bot_token) > 40\nUNION ALL\nSELECT 'support' AS label, bot_username, bot_token FROM support_bot;",
+          "options": {}
+        },
+        "id": "dg000000-0000-4000-8000-000000000007",
+        "name": "Диаг: боты",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          500,
+          0
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "method": "GET",
+          "url": "=https://api.telegram.org/bot{{ $json.bot_token }}/getWebhookInfo",
+          "options": {
+            "timeout": 6000,
+            "response": {
+              "response": {
+                "fullResponse": true,
+                "neverError": true
+              }
+            }
+          }
+        },
+        "id": "dg000000-0000-4000-8000-000000000008",
+        "name": "Диаг: вебхуки",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.4,
+        "position": [
+          720,
+          0
+        ],
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Свод проб в вердикт. Ничего не чинит и никуда не пишет — только читает.\nconst grab = (name) => { try { return $(name).first().json || {}; } catch (e) { return {}; } };\nconst num = (v, d) => { const n = Number(v); return isFinite(n) ? n : d; };\nconst short = (v, n) => String(v == null ? '' : v).slice(0, n);\n\nconst checks = [];\nconst add = (key, title, status, detail) => checks.push({ key, title, status, detail });\n\n// --- 1. Postgres (память клиентов, журналы, доступы) ---\nconst db = grab('Диаг: база');\nconst dbOk = db.now_utc !== undefined && db.now_utc !== null;\nadd('postgres', 'База данных', dbOk ? 'ok' : 'red',\n  dbOk ? 'отвечает' : 'НЕ отвечает — ' + short(db.error && db.error.message || db.message || 'нет ответа', 180));\n\n// --- 2. Anthropic: то самое, что молча убило бота на 6 часов ---\nconst an = grab('Диаг: anthropic');\nconst anCode = num(an.statusCode, 0);\nconst anBody = (() => { try { return JSON.stringify(an.body || {}); } catch (e) { return ''; } })();\nlet anSt = 'red', anDet = '';\nif (anCode === 200) { anSt = 'ok'; anDet = 'отвечает, оплата в порядке'; }\nelse if (anCode === 400 && /credit balance/i.test(anBody)) { anDet = 'КОНЧИЛИСЬ КРЕДИТЫ — пополнить баланс в консоли Anthropic'; }\nelse if (anCode === 400) { anDet = 'отклонил запрос (400) — ' + short(anBody, 160); }\nelse if (anCode === 401) { anDet = 'ключ API отклонён (401) — проверить credential'; }\nelse if (anCode === 429) { anSt = 'warn'; anDet = 'упёрлись в лимит запросов (429)'; }\nelse if (anCode >= 500) { anDet = 'авария на стороне Anthropic (' + anCode + ')'; }\nelse { anDet = 'не отвечает — ' + short(an.error && an.error.message || an.message || 'сеть недоступна', 160); }\nadd('anthropic', 'Anthropic (мозг бота)', anSt, anDet);\n\n// --- 3. Публичный адрес: этим путём Telegram приносит сообщения ---\nconst site = grab('Диаг: сайт');\nconst siteCode = num(site.statusCode, 0);\nadd('site', 'Публичный адрес n8n', siteCode === 200 ? 'ok' : 'red',\n  siteCode === 200 ? 'отвечает (nginx + SSL живы)'\n    : 'НЕ отвечает (' + (siteCode || 'сеть') + ') — Telegram не сможет достучаться');\n\n// --- 4. Groq: расшифровка голосовых ---\nconst gq = grab('Диаг: groq');\nconst gqCode = num(gq.statusCode, 0);\nadd('groq', 'Groq (голосовые)', gqCode === 200 ? 'ok' : (gqCode === 401 ? 'red' : 'warn'),\n  gqCode === 200 ? 'отвечает'\n    : gqCode === 401 ? 'ключ отклонён (401) — голос не работает'\n    : 'не отвечает (' + (gqCode || 'сеть') + ') — голос под вопросом');\n\n// --- 5. Gotenberg: PDF-отчёты и графики ---\nconst gt = grab('Диаг: gotenberg');\nconst gtCode = num(gt.statusCode, 0);\nadd('gotenberg', 'Gotenberg (PDF и графики)', gtCode === 200 ? 'ok' : 'warn',\n  gtCode === 200 ? 'отвечает' : 'не отвечает (' + (gtCode || 'сеть') + ') — PDF и графики не соберутся');\n\n// --- 6. Боты Telegram: жив ли вебхук у каждого ---\nlet botRows = [];\ntry { botRows = $('Диаг: боты').all().map((i) => i.json); } catch (e) { botRows = []; }\nconst hooks = $input.all().map((i) => i.json);\nconst botLines = [];\nlet botStatus = 'ok';\nconst nowSec = Math.floor(new Date().getTime() / 1000);\nbotRows.forEach((b, idx) => {\n  const h = hooks[idx] || {};\n  const code = num(h.statusCode, 0);\n  const body = h.body || {};\n  const name = '@' + (b.bot_username || b.label);\n  if (code !== 200 || body.ok !== true) {\n    botStatus = 'red';\n    botLines.push(name + ': не отвечает (' + (code || 'сеть') + ')');\n    return;\n  }\n  const r = body.result || {};\n  const pend = num(r.pending_update_count, 0);\n  const lastErr = String(r.last_error_message || '');\n  // last_error_message Telegram держит долго после починки — считаем сбоем\n  // только свежую ошибку (моложе 30 минут), иначе сторож будет выть на старое.\n  const errAge = r.last_error_date ? (nowSec - num(r.last_error_date, 0)) : 1e9;\n  if (lastErr && errAge < 1800) {\n    botStatus = 'red';\n    botLines.push(name + ': вебхук с ошибкой — ' + short(lastErr, 120));\n  } else if (pend > 20) {\n    if (botStatus === 'ok') botStatus = 'warn';\n    botLines.push(name + ': очередь ' + pend + ' необработанных');\n  } else {\n    botLines.push(name + ': ок' + (pend ? ' (в очереди ' + pend + ')' : ''));\n  }\n});\nif (!botRows.length) { botStatus = 'warn'; botLines.push('список ботов не прочитан'); }\nadd('telegram', 'Боты Telegram', botStatus, botLines.join('; '));\n\n// --- 7. Зависшие долгие операции (сами себя лечат свипами, но знать полезно) ---\nconst orphans = num(db.research_orphans, 0) + num(db.batch_orphans, 0);\nif (orphans > 0) {\n  add('orphans', 'Зависшие операции', 'warn',\n    'research: ' + num(db.research_orphans, 0) + ', пачки файлов: ' + num(db.batch_orphans, 0));\n}\n\n// --- 8. Всплеск сбоёв у клиентов ---\n// Инфраструктура при этом бывает полностью зелёной: 18.08.2026 агент упирался\n// в потолок шагов, клиенты получали отказ, а все пробы показывали «всё хорошо».\nconst err1h = num(db.err_1h, 0);\nif (dbOk && err1h >= 3) {\n  add('errors', 'Сбои у клиентов', 'warn',\n    err1h + ' за последний час' + (db.err_top ? ' — ' + short(db.err_top, 120) : ''));\n}\n\n// --- Итог ---\nconst worst = checks.some((c) => c.status === 'red') ? 'red'\n  : checks.some((c) => c.status === 'warn') ? 'warn' : 'ok';\n\n// --- Текст для Telegram. Без HTML-разметки: тексты ошибок произвольные,\n// на < & > Telegram отбрасывает сообщение целиком (грабля алертов, п.2). ---\nconst icon = { ok: '✅', warn: '⚠️', red: '🔴' };\nconst verdict = { ok: 'всё в порядке', warn: 'есть предупреждения', red: 'ЕСТЬ СБОЙ' };\nconst mskNow = new Date().toLocaleString('ru-RU', {\n  timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', year: 'numeric',\n  hour: '2-digit', minute: '2-digit',\n});\n\nconst lines = [];\nlines.push('🩺 Диагностика ИИ-Тренера');\nlines.push('Итог: ' + icon[worst] + ' ' + verdict[worst]);\nlines.push(mskNow + ' МСК');\nlines.push('');\nchecks.forEach((c) => lines.push(icon[c.status] + ' ' + c.title + ' — ' + c.detail));\n\nlines.push('');\nif (!dbOk) {\n  // Все счётчики ниже читаются из базы. Если она молчит — печатать нули нельзя:\n  // «активных доступов: 0» во время аварии выглядит как факт, а это незнание.\n  lines.push('Счётчики недоступны — база не отвечает.');\n} else {\n  const silence = num(db.silence_min, -1);\n  const silenceTxt = silence < 0 ? 'сообщений ещё не было'\n    : silence < 60 ? ('последнее ' + silence + ' мин назад')\n    : ('последнее ' + Math.round(silence / 60) + ' ч назад');\n\n  lines.push('Сейчас в системе:');\n  lines.push('• сообщений за сутки: ' + num(db.msgs_24h, 0) + ', ' + silenceTxt);\n  lines.push('• ошибок за час / сутки: ' + num(db.err_1h, 0) + ' / ' + num(db.err_24h, 0));\n  if (db.err_top) lines.push('• где падало: ' + short(db.err_top, 200));\n  if (num(db.err_24h, 0) > 0 && db.err_last) lines.push('• последняя ошибка: ' + short(db.err_last, 200));\n  lines.push('• активных доступов: ' + num(db.active_access, 0));\n  lines.push('• новых обращений в поддержку: ' + num(db.feedback_new, 0));\n}\n\nreturn [{ json: {\n  status: worst,\n  checks,\n  text: lines.join('\\n'),\n  summary: checks.filter((c) => c.status !== 'ok').map((c) => c.title + ': ' + c.detail).join(' | '),\n} }];"
+        },
+        "id": "dg000000-0000-4000-8000-000000000009",
+        "name": "Диаг: свод",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          940,
+          0
+        ]
+      }
+    ],
+    "connections": {
+      "Запуск": {
+        "main": [
+          [
+            {
+              "node": "Диаг: база",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Диаг: база": {
+        "main": [
+          [
+            {
+              "node": "Диаг: anthropic",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Диаг: anthropic": {
+        "main": [
+          [
+            {
+              "node": "Диаг: сайт",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Диаг: сайт": {
+        "main": [
+          [
+            {
+              "node": "Диаг: groq",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Диаг: groq": {
+        "main": [
+          [
+            {
+              "node": "Диаг: gotenberg",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Диаг: gotenberg": {
+        "main": [
+          [
+            {
+              "node": "Диаг: боты",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Диаг: боты": {
+        "main": [
+          [
+            {
+              "node": "Диаг: вебхуки",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Диаг: вебхуки": {
+        "main": [
+          [
+            {
+              "node": "Диаг: свод",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "errorWorkflow": "ErrorNotify00001",
+      "executionTimeout": 180
+    }
+  }
+]

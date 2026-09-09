@@ -1,0 +1,105 @@
+[
+  {
+    "id": "LogWorkoutTool001",
+    "name": "Инструмент — Журнал тренировок",
+    "active": false,
+    "settings": { "executionOrder": "v1" },
+    "nodes": [
+      {
+        "parameters": {
+          "inputSource": "workflowInputs",
+          "workflowInputs": {
+            "values": [
+              { "name": "bot_id", "type": "string" },
+              { "name": "user_id", "type": "number" },
+              { "name": "performed_on", "type": "string" },
+              { "name": "session_type", "type": "string" },
+              { "name": "duration_min", "type": "number" },
+              { "name": "note", "type": "string" },
+              { "name": "entries", "type": "string" }
+            ]
+          }
+        },
+        "id": "w2000000-0000-4000-8000-000000000001",
+        "name": "When Executed by Another Workflow",
+        "type": "n8n-nodes-base.executeWorkflowTrigger",
+        "typeVersion": 1.2,
+        "position": [-700, 0]
+      },
+      {
+        "parameters": {
+          "jsCode": "const d = $input.first().json;\nconst today = new Date().toISOString().slice(0, 10);\nlet on = String(d.performed_on || '').trim();\nif (!/^\\d{4}-\\d{2}-\\d{2}$/.test(on)) on = today;\nif (on > today) on = today;\nconst num = v => { const n = Number(v); return isFinite(n) ? n : null; };\nlet entries = [];\ntry { entries = (typeof d.entries === 'string') ? JSON.parse(d.entries) : (d.entries || []); } catch (e) { entries = []; }\nif (!Array.isArray(entries)) entries = [];\nreturn [{ json: { bot_id: d.bot_id, user_id: d.user_id, performed_on: on, session_type: String(d.session_type || '').trim() || null, duration_min: num(d.duration_min), note: String(d.note || '').trim() || null, entries } }];"
+        },
+        "id": "w2000000-0000-4000-8000-000000000002",
+        "name": "Подготовить",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [-460, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO workout_session (bot_id,user_id,performed_on,session_type,duration_min,note,source) VALUES ($1,$2,$3::date,$4,$5,$6,'client') RETURNING id;",
+          "options": { "queryReplacement": "={{ [$json.bot_id, $json.user_id, $json.performed_on, $json.session_type, $json.duration_min, $json.note] }}" }
+        },
+        "id": "w2000000-0000-4000-8000-000000000003",
+        "name": "Сессия",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-220, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "jsCode": "const prep = $('Подготовить').first().json;\nconst sessionId = $input.first().json.id;\nconst num = v => { const n = Number(v); return isFinite(n) ? n : null; };\nconst entries = prep.entries || [];\nconst cols = ['session_id','activity_name','entry_order','kind','set_no','reps','weight_kg','rpe','duration_s','distance_m','pace_s_per_km','hr_avg'];\nconst rows = []; const params = []; let p = 1; let order = 0;\nfunction addRow(vals) { const ph = vals.map(() => '$' + (p++)); rows.push('(' + ph.join(',') + ')'); for (const v of vals) params.push(v); }\nfor (const e of entries) {\n  order++;\n  const kind = e.kind === 'cardio' ? 'cardio' : (e.kind === 'strength' ? 'strength' : 'other');\n  const act = e.activity || e.activity_name || null;\n  if (kind === 'strength' && Array.isArray(e.sets) && e.sets.length) {\n    let sn = 0;\n    for (const s of e.sets) { sn++; addRow([sessionId, act, order, 'strength', sn, num(s.reps), num(s.weight_kg != null ? s.weight_kg : s.weight), num(s.rpe), null, null, null, null]); }\n  } else if (kind === 'cardio') {\n    addRow([sessionId, act, order, 'cardio', null, null, null, num(e.rpe), num(e.duration_s), num(e.distance_m), num(e.pace_s_per_km), num(e.hr_avg)]);\n  } else {\n    addRow([sessionId, act, order, kind, num(e.set_no), num(e.reps), num(e.weight_kg != null ? e.weight_kg : e.weight), num(e.rpe), num(e.duration_s), num(e.distance_m), num(e.pace_s_per_km), num(e.hr_avg)]);\n  }\n}\nconst query = rows.length ? ('INSERT INTO workout_entry (' + cols.join(',') + ') VALUES ' + rows.join(',')) : 'SELECT 1';\nreturn [{ json: { query, params, session_id: sessionId, n_exercises: order, n_rows: rows.length } }];"
+        },
+        "id": "w2000000-0000-4000-8000-000000000004",
+        "name": "Строки",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [20, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "={{ $json.query }}",
+          "options": { "queryReplacement": "={{ $json.params }}" }
+        },
+        "id": "w2000000-0000-4000-8000-000000000005",
+        "name": "Записать строки",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [260, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      },
+      {
+        "parameters": {
+          "assignments": {
+            "assignments": [
+              {
+                "id": "r1",
+                "name": "response",
+                "value": "={{ 'Записал тренировку от ' + $('Подготовить').first().json.performed_on + ': упражнений ' + $('Строки').first().json.n_exercises + ', строк-подходов ' + $('Строки').first().json.n_rows + '.' }}",
+                "type": "string"
+              }
+            ]
+          },
+          "includeOtherFields": false,
+          "options": {}
+        },
+        "id": "w2000000-0000-4000-8000-000000000006",
+        "name": "Ответ агенту",
+        "type": "n8n-nodes-base.set",
+        "typeVersion": 3.4,
+        "position": [500, 0]
+      }
+    ],
+    "connections": {
+      "When Executed by Another Workflow": { "main": [[{ "node": "Подготовить", "type": "main", "index": 0 }]] },
+      "Подготовить": { "main": [[{ "node": "Сессия", "type": "main", "index": 0 }]] },
+      "Сессия": { "main": [[{ "node": "Строки", "type": "main", "index": 0 }]] },
+      "Строки": { "main": [[{ "node": "Записать строки", "type": "main", "index": 0 }]] },
+      "Записать строки": { "main": [[{ "node": "Ответ агенту", "type": "main", "index": 0 }]] }
+    }
+  }
+]

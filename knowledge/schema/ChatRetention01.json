@@ -1,0 +1,36 @@
+[
+  {
+    "id": "ChatRetention01",
+    "name": "Память — прунинг сырых чатов (60д)",
+    "active": false,
+    "settings": { "executionOrder": "v1", "executionTimeout": 300 },
+    "nodes": [
+      {
+        "parameters": {
+          "rule": { "interval": [ { "field": "cronExpression", "expression": "20 3 * * *" } ] }
+        },
+        "id": "c1000000-0000-4000-8000-000000000001",
+        "name": "Ночью",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [-400, 0]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH del AS ( DELETE FROM n8n_chat_histories h USING extraction_state es WHERE split_part(h.session_id,':',1)=es.bot_id AND split_part(h.session_id,':',2)::bigint=es.user_id AND h.id <= es.last_message_id AND h.created_at < now() - interval '60 days' RETURNING h.id ) SELECT count(*) AS deleted, coalesce(min(id),0) AS min_id, coalesce(max(id),0) AS max_id FROM del;",
+          "options": {}
+        },
+        "id": "c1000000-0000-4000-8000-000000000002",
+        "name": "Прунинг",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [-160, 0],
+        "credentials": { "postgres": { "id": "LXIg26xUOtUdy7DJ", "name": "Postgres account" } }
+      }
+    ],
+    "connections": {
+      "Ночью": { "main": [ [ { "node": "Прунинг", "type": "main", "index": 0 } ] ] }
+    }
+  }
+]

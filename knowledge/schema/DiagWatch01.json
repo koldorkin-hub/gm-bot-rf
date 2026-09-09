@@ -1,0 +1,410 @@
+[
+  {
+    "id": "DiagWatch00001",
+    "name": "Диагностика — сторож",
+    "active": true,
+    "nodes": [
+      {
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "*/15 * * * *"
+              }
+            ]
+          }
+        },
+        "id": "dw000000-0000-4000-8000-000000000001",
+        "name": "Сторож: расписание",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          -820,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "workflowId": {
+            "__rl": true,
+            "value": "SelfDiag000001",
+            "mode": "list",
+            "cachedResultName": "Диагностика — проверка системы"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "source": "watchdog"
+            }
+          },
+          "options": {}
+        },
+        "id": "dw000000-0000-4000-8000-000000000002",
+        "name": "Сторож: диагностика",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.2,
+        "position": [
+          -600,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH old AS (SELECT status FROM diag_state WHERE k='main'),\nupd AS (\n  INSERT INTO diag_state (k, status, changed_at, details) VALUES ('main', $1, now(), $2)\n  ON CONFLICT (k) DO UPDATE SET status = EXCLUDED.status, details = EXCLUDED.details,\n    changed_at = CASE WHEN diag_state.status <> EXCLUDED.status THEN now() ELSE diag_state.changed_at END\n  RETURNING status\n),\ncl AS (DELETE FROM ops_error WHERE at < now() - interval '30 days' RETURNING 1)\nSELECT COALESCE((SELECT status FROM old), 'none') AS prev,\n       COALESCE((SELECT status FROM upd), $1) AS cur,\n       (SELECT count(*) FROM cl) AS purged;",
+          "options": {
+            "queryReplacement": "={{ [ $json.status, String($json.summary || '').slice(0,300) ] }}"
+          }
+        },
+        "id": "dw000000-0000-4000-8000-000000000003",
+        "name": "Сторож: состояние",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          -380,
+          0
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const diag = (() => { try { return $('Сторож: диагностика').first().json || {}; } catch (e) { return {}; } })();\nconst st = $input.first().json || {};\nconst prev = String(st.prev || 'none');\nconst cur = String(st.cur || diag.status || 'none');\n\n// Узел Telegram умеет только Markdown/HTML — режима «без разметки» нет.\n// В тексте ошибок попадаются & < >, на них Telegram роняет сообщение целиком.\nconst esc = (v) => String(v == null ? '' : v)\n  .replace(/&/g, '&amp;')\n  .replace(/</g, '&lt;')\n  .replace(/>/g, '&gt;');\n\nconst checks = Array.isArray(diag.checks) ? diag.checks : [];\nconst errSpike = checks.some((c) => c && c.key === 'errors');\n\nlet send = false, kind = 'none', text = '';\nif (cur === 'red') {\n  send = true; kind = 'red';\n  text = '🔴 Сторож: в системе сбой\\n\\n' + esc(diag.text || 'нет деталей');\n} else if (prev === 'red') {\n  send = true; kind = 'recovered';\n  text = '✅ Сторож: система восстановилась\\n\\n' + esc(diag.text || '');\n} else if (errSpike) {\n  // Инфраструктура зелёная, но у клиентов что-то не работает — отдельный класс,\n  // своё окно анти-спама. Без этого сбои вроде «потолка шагов» проходят мимо тревог.\n  send = true; kind = 'errors';\n  text = '⚠️ Сторож: сбои у клиентов при живой инфраструктуре\\n\\n' + esc(diag.text || '');\n}\n// Прочие warn намеренно не будят: копятся в отчёте, будить ими незачем.\nreturn [{ json: { send, kind, text, prev, cur } }];"
+        },
+        "id": "dw000000-0000-4000-8000-000000000004",
+        "name": "Сторож: решение",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          -160,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "typeValidation": "loose",
+              "version": 2
+            },
+            "combinator": "and",
+            "conditions": [
+              {
+                "id": "w1",
+                "leftValue": "={{ $json.send }}",
+                "rightValue": "",
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true",
+                  "singleValue": true
+                }
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "dw000000-0000-4000-8000-000000000005",
+        "name": "Сторож: слать?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          60,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "typeValidation": "loose",
+              "version": 2
+            },
+            "combinator": "and",
+            "conditions": [
+              {
+                "id": "w2",
+                "leftValue": "={{ $json.kind }}",
+                "rightValue": "red",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "dw000000-0000-4000-8000-000000000006",
+        "name": "Сторож: красное?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          280,
+          0
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO ops_alert (kind, last_at) VALUES ('diag_red', now())\n  ON CONFLICT (kind) DO UPDATE SET last_at = now()\n  WHERE ops_alert.last_at < now() - interval '30 minutes'\n  RETURNING kind;",
+          "options": {}
+        },
+        "id": "dw000000-0000-4000-8000-000000000007",
+        "name": "Сторож: анти-спам",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          500,
+          -120
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "typeValidation": "loose",
+              "version": 2
+            },
+            "combinator": "and",
+            "conditions": [
+              {
+                "id": "w3",
+                "leftValue": "={{ $json.kind }}",
+                "rightValue": "errors",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ]
+          },
+          "options": {}
+        },
+        "id": "dw000000-0000-4000-8000-000000000010",
+        "name": "Сторож: ошибки?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          500,
+          140
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "INSERT INTO ops_alert (kind, last_at) VALUES ('diag_errors', now())\n  ON CONFLICT (kind) DO UPDATE SET last_at = now()\n  WHERE ops_alert.last_at < now() - interval '3 hours'\n  RETURNING kind;",
+          "options": {}
+        },
+        "id": "dw000000-0000-4000-8000-000000000011",
+        "name": "Сторож: анти-спам ошибок",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          720,
+          60
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "executeQuery",
+          "query": "WITH d AS (DELETE FROM ops_alert WHERE kind = 'diag_red' RETURNING 1)\nSELECT COALESCE((SELECT count(*) FROM d), 0) AS cleared;",
+          "options": {}
+        },
+        "id": "dw000000-0000-4000-8000-000000000008",
+        "name": "Сторож: сброс окна",
+        "type": "n8n-nodes-base.postgres",
+        "typeVersion": 2.6,
+        "position": [
+          720,
+          240
+        ],
+        "credentials": {
+          "postgres": {
+            "id": "LXIg26xUOtUdy7DJ",
+            "name": "Postgres account"
+          }
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "parameters": {
+          "chatId": "255171226",
+          "text": "={{ $('Сторож: решение').first().json.text }}",
+          "additionalFields": {
+            "appendAttribution": false,
+            "parse_mode": "HTML"
+          }
+        },
+        "id": "dw000000-0000-4000-8000-000000000009",
+        "name": "Сторож: алерт",
+        "type": "n8n-nodes-base.telegram",
+        "typeVersion": 1.2,
+        "position": [
+          740,
+          0
+        ],
+        "credentials": {
+          "telegramApi": {
+            "id": "SupportTg0000001",
+            "name": "Telegram Support Bot"
+          }
+        },
+        "retryOnFail": true,
+        "maxTries": 3,
+        "waitBetweenTries": 3000
+      }
+    ],
+    "connections": {
+      "Сторож: расписание": {
+        "main": [
+          [
+            {
+              "node": "Сторож: диагностика",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Сторож: диагностика": {
+        "main": [
+          [
+            {
+              "node": "Сторож: состояние",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Сторож: состояние": {
+        "main": [
+          [
+            {
+              "node": "Сторож: решение",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Сторож: решение": {
+        "main": [
+          [
+            {
+              "node": "Сторож: слать?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Сторож: слать?": {
+        "main": [
+          [
+            {
+              "node": "Сторож: красное?",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          []
+        ]
+      },
+      "Сторож: красное?": {
+        "main": [
+          [
+            {
+              "node": "Сторож: анти-спам",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Сторож: ошибки?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Сторож: ошибки?": {
+        "main": [
+          [
+            {
+              "node": "Сторож: анти-спам ошибок",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Сторож: сброс окна",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Сторож: анти-спам": {
+        "main": [
+          [
+            {
+              "node": "Сторож: алерт",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Сторож: анти-спам ошибок": {
+        "main": [
+          [
+            {
+              "node": "Сторож: алерт",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Сторож: сброс окна": {
+        "main": [
+          [
+            {
+              "node": "Сторож: алерт",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1",
+      "errorWorkflow": "ErrorNotify00001",
+      "executionTimeout": 240
+    }
+  }
+]
