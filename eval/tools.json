@@ -1,13 +1,13 @@
 [
   {
-    "name": "lookup_food",
-    "description": "Точные БЖУ продукта на 100 г из справочника. query — название по-русски («куриная грудка», «гречка»). Вызывай для каждого значимого продукта перед log_food и на вопросы о калориях; пересчёт на порцию — через calculate. Нет в справочнике — так и ответит: тогда оцени сам и предупреди о приблизительности.",
+    "name": "web_search",
+    "description": "Веб-поиск по актуальным данным: свежие исследования, новые препараты и добавки, цены, версии, вопросы «что сейчас / последние данные». Не для того, что знаешь сам (техника, физиология, общие принципы питания). Вход — запрос по-русски. Возвращает text (сводка) и sources (ссылки).",
     "input_schema": {
       "type": "object",
       "properties": {
         "query": {
           "type": "string",
-          "description": "название продукта по-русски"
+          "description": "Поисковый запрос на русском языке"
         }
       },
       "required": [
@@ -17,146 +17,17 @@
     }
   },
   {
-    "name": "log_food",
-    "description": "Записывает приём пищи в дневник. description (обязательно), kcal, protein_g, fat_g, carb_g — из lookup_food и пересчёта порции через calculate (не на глаз; чего нет в справочнике — оценка с пометкой «приблизительно»). meal_type breakfast|lunch|dinner|snack. eaten_on — YYYY-MM-DD или пусто (сегодня клиента).",
+    "name": "save_profile",
+    "description": "Сохраняет факты профиля в долговременную память — вызывай СРАЗУ, как узнал любой из них. updates — JSON только с реально узнанными полями: display_name, birth_date, sex(male|female|other), height_cm, timezone(IANA), units, main_goal, goal_targets, goal_deadline, motivation, disciplines([{discipline,goal,priority}]), experience_level, equipment, days_per_week, session_minutes, diet_type, target_kcal, target_protein_g, target_fat_g, target_carb_g, cooking_time_pref, cooking_skill, current_weight_kg, current_weight_on, onboarding_done(true когда собраны цель, дисциплины и база). Отдельные ключи (каждый — ПОЛНЫМ текстом поля, поле перезаписывается): custom_instructions (пожелания о твоём поведении), active_plan (долгосрочный план), plan_month, plan_week, plan_started_on(YYYY-MM-DD, старт программы). Даты — YYYY-MM-DD.",
     "input_schema": {
       "type": "object",
       "properties": {
-        "description": {
-          "type": "string",
-          "description": "что съедено, словами"
-        },
-        "kcal": {
-          "type": "number",
-          "description": "калорийность порции"
-        },
-        "protein_g": {
-          "type": "number",
-          "description": "белки, г"
-        },
-        "fat_g": {
-          "type": "number",
-          "description": "жиры, г"
-        },
-        "carb_g": {
-          "type": "number",
-          "description": "углеводы, г"
-        },
-        "meal_type": {
-          "type": "string",
-          "enum": [
-            "breakfast",
-            "lunch",
-            "dinner",
-            "snack"
-          ],
-          "description": "приём пищи"
-        },
-        "eaten_on": {
-          "type": "string",
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "дата ГГГГ-ММ-ДД"
+        "updates": {
+          "type": "object",
+          "description": "JSON только с реально узнанными полями"
         }
       },
-      "required": [
-        "description"
-      ],
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "log_workout",
-    "description": "Записывает проведённую активность. entries — JSON-массив: силовое {activity, kind:\"strength\", sets:[{reps, weight_kg, rpe}]}; кардио {activity, kind:\"cardio\", duration_s (обязательно), distance_m, hr_avg (если клиент назвал пульс — точнее расход)}; шаги {activity:\"Шаги\", kind:\"cardio\", steps}. activity — движение, не тренажёр. Расход ккал считает система — своих цифр не передавай. performed_on — YYYY-MM-DD или пусто (сегодня клиента); duration_min — общая длительность (по ней расход силовой части); session_type strength|cardio|mixed|sport; note.",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "entries": {
-          "type": "array",
-          "description": "записи активности",
-          "items": {
-            "type": "object",
-            "properties": {
-              "activity": {
-                "type": "string",
-                "description": "движение, не тренажёр"
-              },
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "strength",
-                  "cardio"
-                ],
-                "description": "тип"
-              },
-              "sets": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "properties": {
-                    "reps": {
-                      "type": "number",
-                      "description": "повторения"
-                    },
-                    "weight_kg": {
-                      "type": "number",
-                      "description": "вес, кг"
-                    },
-                    "rpe": {
-                      "type": "number",
-                      "description": "RPE 1-10"
-                    }
-                  }
-                }
-              },
-              "duration_s": {
-                "type": "number",
-                "description": "длительность кардио, с"
-              },
-              "distance_m": {
-                "type": "number",
-                "description": "дистанция, м"
-              },
-              "hr_avg": {
-                "type": "number",
-                "description": "средний пульс"
-              },
-              "steps": {
-                "type": "number",
-                "description": "шаги"
-              }
-            },
-            "required": [
-              "activity"
-            ]
-          }
-        },
-        "performed_on": {
-          "type": "string",
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "дата ГГГГ-ММ-ДД"
-        },
-        "session_type": {
-          "type": "string",
-          "enum": [
-            "strength",
-            "cardio",
-            "mixed",
-            "sport"
-          ],
-          "description": "тип занятия"
-        },
-        "duration_min": {
-          "type": "number",
-          "description": "общая длительность, мин"
-        },
-        "note": {
-          "type": "string",
-          "description": "заметка"
-        }
-      },
-      "required": [
-        "entries"
-      ],
+      "required": [],
       "additionalProperties": false
     }
   },
@@ -168,51 +39,47 @@
       "properties": {
         "metric": {
           "type": "string",
-          "description": "короткий латинский ключ: weight, waist, body_fat_pct, systolic…"
+          "description": "короткий латинский ключ метрики, напр. weight"
         },
         "value": {
           "type": "number",
-          "description": "значение"
+          "description": "числовое значение метрики"
         },
         "unit": {
           "type": "string",
-          "description": "единица измерения"
+          "description": "единица измерения, напр. kg"
         },
         "measured_on": {
           "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "дата ГГГГ-ММ-ДД"
+          "description": "дата YYYY-MM-DD или пусто для сегодня"
         },
         "items": {
           "type": "array",
-          "description": "несколько показателей одним вызовом",
           "maxItems": 50,
           "items": {
             "type": "object",
             "properties": {
               "metric": {
-                "type": "string",
-                "description": "ключ"
+                "type": "string"
               },
               "value": {
-                "type": "number",
-                "description": "значение"
+                "type": "number"
               },
               "unit": {
-                "type": "string",
-                "description": "единица"
+                "type": "string"
               },
               "measured_on": {
                 "type": "string",
-                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                "description": "дата ГГГГ-ММ-ДД"
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
               }
             },
             "required": [
               "metric",
               "value"
             ]
-          }
+          },
+          "description": "JSON-массив [{metric,value,unit,measured_on}] если показателей несколько, иначе пусто"
         }
       },
       "required": [],
@@ -233,147 +100,35 @@
             "measurement",
             "records"
           ],
-          "description": "раздел дневника"
+          "description": "measurement | workout | food"
         },
         "metric": {
           "type": "string",
-          "description": "ключ показателя, для domain=measurement"
+          "description": "латинский ключ метрики, напр. weight"
+        },
+        "period_days": {
+          "type": "number",
+          "description": "число дней периода, по умолчанию 30"
         },
         "date": {
           "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "дата ГГГГ-ММ-ДД"
+          "description": "один день ГГГГ-ММ-ДД (дата из календаря профиля); пусто если период"
         },
         "date_from": {
           "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "дата ГГГГ-ММ-ДД"
+          "description": "начало диапазона ГГГГ-ММ-ДД или пусто"
         },
         "date_to": {
           "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "дата ГГГГ-ММ-ДД"
-        },
-        "period_days": {
-          "type": "number",
-          "description": "дней назад от сегодня"
+          "description": "конец диапазона ГГГГ-ММ-ДД или пусто"
         }
       },
       "required": [
         "domain"
       ],
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "get_period_report",
-    "description": "Готовый свод за период для отчёта о прогрессе: тренировки, питание, расход, вес, шаги, замеры, рекорды — посчитано системой. period_days: 30 месяц, 7 неделя. Вызывай на /progress и любую просьбу про итоги; числа не пересчитывай.",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "period_days": {
-          "type": "number",
-          "description": "30 — месяц, 7 — неделя"
-        }
-      },
-      "required": [
-        "period_days"
-      ],
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "get_progress_chart",
-    "description": "Отправляет клиенту картинку-график. metric: weight, waist, body_fat, hip; volume (силовой объём по неделям); 1rm:<упражнение> (1ПМ движения); cardio (км в неделю); pace (темп бега). В отчёте /progress — только weight; остальное по прямой просьбе клиента. Цифры не пересказывай — график уже у клиента. Возвращает response (отправлено / мало данных).",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "metric": {
-          "type": "string",
-          "description": "weight | waist | body_fat | hip | volume | 1rm:<упражнение> | cardio | pace"
-        }
-      },
-      "required": [
-        "metric"
-      ],
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "calculate",
-    "description": "Детерминированные расчёты. kind=calories — норма калорий и БЖУ по профилю (сам берёт пол, возраст, рост, вес, активность; проверяет свежесть веса; goal_direction cut|bulk|maintain опционально). kind=one_rep_max — расчётный 1ПМ и веса по процентам: weight, reps, опционально target_pct. Любые расчёты калорий, БЖУ, дефицита, 1ПМ — только здесь.",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "kind": {
-          "type": "string",
-          "enum": [
-            "calories",
-            "one_rep_max"
-          ],
-          "description": "что считаем"
-        },
-        "weight": {
-          "type": "number",
-          "description": "вес снаряда, кг — для one_rep_max"
-        },
-        "reps": {
-          "type": "number",
-          "description": "повторения — для one_rep_max"
-        },
-        "target_pct": {
-          "type": "number",
-          "description": "процент от 1ПМ"
-        },
-        "goal_direction": {
-          "type": "string",
-          "enum": [
-            "cut",
-            "bulk",
-            "maintain"
-          ],
-          "description": "направление цели"
-        }
-      },
-      "required": [
-        "kind"
-      ],
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "save_profile",
-    "description": "Сохраняет факты профиля в долговременную память — вызывай СРАЗУ, как узнал любой из них. updates — JSON только с реально узнанными полями: display_name, birth_date, sex(male|female|other), height_cm, timezone(IANA), units, main_goal, goal_targets, goal_deadline, motivation, disciplines([{discipline,goal,priority}]), experience_level, equipment, days_per_week, session_minutes, diet_type, target_kcal, target_protein_g, target_fat_g, target_carb_g, cooking_time_pref, cooking_skill, current_weight_kg, current_weight_on, onboarding_done(true когда собраны цель, дисциплины и база). Отдельные ключи (каждый — ПОЛНЫМ текстом поля, поле перезаписывается): custom_instructions (пожелания о твоём поведении), active_plan (долгосрочный план), plan_month, plan_week, plan_started_on(YYYY-MM-DD, старт программы). Даты — YYYY-MM-DD.",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "updates": {
-          "type": "object",
-          "description": "JSON только с реально узнанными полями профиля"
-        },
-        "custom_instructions": {
-          "type": "string",
-          "description": "пожелания о поведении бота, ПОЛНЫМ текстом"
-        },
-        "active_plan": {
-          "type": "string",
-          "description": "долгосрочный план, ПОЛНЫМ текстом"
-        },
-        "plan_month": {
-          "type": "string",
-          "description": "план на месяц"
-        },
-        "plan_week": {
-          "type": "string",
-          "description": "план на неделю"
-        },
-        "plan_started_on": {
-          "type": "string",
-          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "дата ГГГГ-ММ-ДД"
-        }
-      },
-      "required": [],
       "additionalProperties": false
     }
   },
@@ -392,15 +147,15 @@
             "injury",
             "medication"
           ],
-          "description": "тип записи"
+          "description": "тип факта: allergen|preference|condition|injury|medication"
         },
         "payload": {
           "type": "object",
-          "description": "поля по типу записи"
+          "description": "JSON с полями факта по его типу"
         },
         "confirmed": {
           "type": "boolean",
-          "description": "true — клиент сказал прямо"
+          "description": "true если клиент сказал прямо, иначе false"
         }
       },
       "required": [
@@ -424,29 +179,26 @@
             "ingredient",
             "other"
           ],
-          "description": "вид ограничения"
+          "description": "load_tag|activity|ingredient|other"
         },
         "value": {
           "type": "string",
-          "description": "для load_tag — axial|impact|knee_dominant|hip_hinge|overhead|shoulder_load|spinal_flexion|rotational|lateral|grip|sprint|low_impact"
+          "description": "тег нагрузки или название"
         },
         "source_type": {
           "type": "string",
           "enum": [
-            "injury",
-            "condition",
-            "medication",
             "client_request"
           ],
-          "description": "откуда ограничение"
+          "description": "injury|condition|medication|client_request"
         },
         "note": {
           "type": "string",
-          "description": "пояснение"
+          "description": "краткая причина"
         },
         "source_ref": {
-          "type": "string",
-          "description": "id травмы из save_health"
+          "type": "number",
+          "description": "id травмы из save_health, если ограничение из неё"
         }
       },
       "required": [
@@ -467,7 +219,7 @@
           "items": {
             "type": "string"
           },
-          "description": "названия упражнений"
+          "description": "JSON-массив названий активностей"
         }
       },
       "required": [
@@ -483,12 +235,189 @@
       "type": "object",
       "properties": {
         "injury_id": {
-          "type": "string",
-          "description": "id травмы из профиля"
+          "type": "number",
+          "description": "id травмы для закрытия (из профиля)"
         }
       },
       "required": [
         "injury_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "calculate",
+    "description": "Детерминированные расчёты. kind=calories — норма калорий и БЖУ по профилю (сам берёт пол, возраст, рост, вес, активность; проверяет свежесть веса; goal_direction cut|bulk|maintain опционально). kind=one_rep_max — расчётный 1ПМ и веса по процентам: weight, reps, опционально target_pct. Любые расчёты калорий, БЖУ, дефицита, 1ПМ — только здесь.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "calories",
+            "one_rep_max"
+          ],
+          "description": "calories | one_rep_max"
+        },
+        "weight": {
+          "type": "number",
+          "description": "рабочий вес для 1ПМ, кг"
+        },
+        "reps": {
+          "type": "number",
+          "description": "число повторов для 1ПМ"
+        },
+        "target_pct": {
+          "type": "number",
+          "description": "нужный процент от 1ПМ, опционально"
+        },
+        "goal_direction": {
+          "type": "string",
+          "enum": [
+            "cut",
+            "bulk",
+            "maintain"
+          ],
+          "description": "cut|bulk|maintain для калорий, опционально"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "log_workout",
+    "description": "Записывает проведённую активность. entries — JSON-массив: силовое {activity, kind:\"strength\", sets:[{reps, weight_kg, rpe}]}; кардио {activity, kind:\"cardio\", duration_s (обязательно), distance_m, hr_avg (если клиент назвал пульс — точнее расход)}; шаги {activity:\"Шаги\", kind:\"cardio\", steps}. activity — движение, не тренажёр. Расход ккал считает система — своих цифр не передавай. performed_on — YYYY-MM-DD или пусто (сегодня клиента); duration_min — общая длительность (по ней расход силовой части); session_type strength|cardio|mixed|sport; note.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "performed_on": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "дата YYYY-MM-DD или пусто для сегодня"
+        },
+        "session_type": {
+          "type": "string",
+          "enum": [
+            "strength",
+            "cardio",
+            "mixed",
+            "sport"
+          ],
+          "description": "тип: strength|cardio|mixed|sport"
+        },
+        "duration_min": {
+          "type": "number",
+          "description": "длительность, мин"
+        },
+        "note": {
+          "type": "string",
+          "description": "заметка"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "activity": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "strength",
+                  "cardio"
+                ]
+              },
+              "sets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "reps": {
+                      "type": "number"
+                    },
+                    "weight_kg": {
+                      "type": "number"
+                    },
+                    "rpe": {
+                      "type": "number"
+                    }
+                  }
+                }
+              },
+              "duration_s": {
+                "type": "number"
+              },
+              "distance_m": {
+                "type": "number"
+              },
+              "hr_avg": {
+                "type": "number"
+              },
+              "steps": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "activity"
+            ]
+          },
+          "description": "JSON-массив упражнений с подходами/метриками"
+        }
+      },
+      "required": [
+        "entries"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "log_food",
+    "description": "Записывает приём пищи в дневник. description (обязательно), kcal, protein_g, fat_g, carb_g — из lookup_food и пересчёта порции через calculate (не на глаз; чего нет в справочнике — оценка с пометкой «приблизительно»). meal_type breakfast|lunch|dinner|snack. eaten_on — YYYY-MM-DD или пусто (сегодня клиента).",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "eaten_on": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "дата YYYY-MM-DD или пусто для сегодня"
+        },
+        "meal_type": {
+          "type": "string",
+          "enum": [
+            "breakfast",
+            "lunch",
+            "dinner",
+            "snack"
+          ],
+          "description": "breakfast|lunch|dinner|snack"
+        },
+        "description": {
+          "type": "string",
+          "description": "что съел"
+        },
+        "kcal": {
+          "type": "number",
+          "description": "калории порции (оценка)"
+        },
+        "protein_g": {
+          "type": "number",
+          "description": "белок, г"
+        },
+        "fat_g": {
+          "type": "number",
+          "description": "жиры, г"
+        },
+        "carb_g": {
+          "type": "number",
+          "description": "углеводы, г"
+        }
+      },
+      "required": [
+        "description"
       ],
       "additionalProperties": false
     }
@@ -501,97 +430,10 @@
       "properties": {
         "query": {
           "type": "string",
-          "description": "ключевое слово или пусто"
+          "description": "ключевое слово для поиска рецепта или пусто"
         }
       },
       "required": [],
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "save_recipe",
-    "description": "Сохраняет рецепт в библиотеку. title, servings, prep_minutes, tags (JSON {meal,cuisine,method}), source bot|client|found, status saved|favorite, ingredients — JSON-массив {item, amount, unit, kcal, protein_g, fat_g, carb_g} на указанный объём. БЖУ на порцию считает код — показывай цифры из ответа. Повтор по названию не создаётся.",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "title": {
-          "type": "string",
-          "description": "название"
-        },
-        "servings": {
-          "type": "number",
-          "description": "порций"
-        },
-        "prep_minutes": {
-          "type": "number",
-          "description": "время готовки"
-        },
-        "tags": {
-          "type": "object",
-          "description": "{meal, cuisine, method}"
-        },
-        "source": {
-          "type": "string",
-          "enum": [
-            "bot",
-            "client",
-            "found"
-          ],
-          "description": "источник"
-        },
-        "status": {
-          "type": "string",
-          "enum": [
-            "saved",
-            "favorite"
-          ],
-          "description": "статус"
-        },
-        "ingredients": {
-          "type": "array",
-          "description": "состав на указанный объём",
-          "items": {
-            "type": "object",
-            "properties": {
-              "item": {
-                "type": "string",
-                "description": "продукт"
-              },
-              "amount": {
-                "type": "number",
-                "description": "количество"
-              },
-              "unit": {
-                "type": "string",
-                "description": "единица"
-              },
-              "kcal": {
-                "type": "number",
-                "description": "ккал"
-              },
-              "protein_g": {
-                "type": "number",
-                "description": "белки"
-              },
-              "fat_g": {
-                "type": "number",
-                "description": "жиры"
-              },
-              "carb_g": {
-                "type": "number",
-                "description": "углеводы"
-              }
-            },
-            "required": [
-              "item"
-            ]
-          }
-        }
-      },
-      "required": [
-        "title",
-        "ingredients"
-      ],
       "additionalProperties": false
     }
   },
@@ -606,11 +448,140 @@
           "items": {
             "type": "string"
           },
-          "description": "продукты, РАЗЛОЖЕННЫЕ на компоненты и скрытые источники"
+          "description": "JSON-массив названий ингредиентов"
         }
       },
       "required": [
         "ingredients"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "save_recipe",
+    "description": "Сохраняет рецепт в библиотеку. title, servings, prep_minutes, tags (JSON {meal,cuisine,method}), source bot|client|found, status saved|favorite, ingredients — JSON-массив {item, amount, unit, kcal, protein_g, fat_g, carb_g} на указанный объём. БЖУ на порцию считает код — показывай цифры из ответа. Повтор по названию не создаётся.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "название рецепта"
+        },
+        "servings": {
+          "type": "number",
+          "description": "число порций"
+        },
+        "prep_minutes": {
+          "type": "number",
+          "description": "время готовки, мин"
+        },
+        "tags": {
+          "type": "object",
+          "description": "JSON тегов {meal,cuisine,method}"
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "bot",
+            "client",
+            "found"
+          ],
+          "description": "bot|client|found"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "saved",
+            "favorite"
+          ],
+          "description": "saved|favorite"
+        },
+        "ingredients": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "type": "string"
+              },
+              "amount": {
+                "type": "number"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "kcal": {
+                "type": "number"
+              },
+              "protein_g": {
+                "type": "number"
+              },
+              "fat_g": {
+                "type": "number"
+              },
+              "carb_g": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "item"
+            ]
+          },
+          "description": "JSON-массив {item,amount,unit,kcal,protein_g,fat_g,carb_g}"
+        }
+      },
+      "required": [
+        "title",
+        "ingredients"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_research_report",
+    "description": "Достаёт сохранённый /research-разбор и САМ отправляет PDF клиенту (новый разбор не запускает, лимит не тратит). query — 1–2 ключевых слова темы (поиск по основам слов); пустой — самый свежий; при промахе вернёт список сохранённых тем. Вызывай всегда, когда клиент просит прислать или вспомнить разбор.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "ключевое слово темы разбора или пусто"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_progress_chart",
+    "description": "Отправляет клиенту картинку-график. metric: weight, waist, body_fat, hip; volume (силовой объём по неделям); 1rm:<упражнение> (1ПМ движения); cardio (км в неделю); pace (темп бега). В отчёте /progress — только weight; остальное по прямой просьбе клиента. Цифры не пересказывай — график уже у клиента. Возвращает response (отправлено / мало данных).",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "metric": {
+          "type": "string",
+          "description": "weight | waist | body_fat | hip | volume | 1rm:<упражнение> | cardio | pace"
+        }
+      },
+      "required": [
+        "metric"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "lookup_food",
+    "description": "Точные БЖУ продукта на 100 г из справочника. query — название по-русски («куриная грудка», «гречка»). Вызывай для каждого значимого продукта перед log_food и на вопросы о калориях; пересчёт на порцию — через calculate. Нет в справочнике — так и ответит: тогда оцени сам и предупреди о приблизительности.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "название продукта для поиска БЖУ, по-русски (напр. куриная грудка, гречка, банан)"
+        }
+      },
+      "required": [
+        "query"
       ],
       "additionalProperties": false
     }
@@ -635,20 +606,20 @@
             "delete_measurement",
             "delete_workout_session"
           ],
-          "description": "действие"
-        },
-        "id": {
-          "type": "string",
-          "description": "id записи для update_*/delete_*"
+          "description": "list_* | update_* | delete_* по журналу food/workout/measurement, delete_workout_session"
         },
         "date": {
           "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "дата ГГГГ-ММ-ДД"
+          "description": "дата дня ГГГГ-ММ-ДД (для list_*)"
+        },
+        "id": {
+          "type": "number",
+          "description": "id записи из list_* (для update_*/delete_*)"
         },
         "fields": {
           "type": "object",
-          "description": "только изменяемые поля"
+          "description": "JSON-строка с новыми значениями полей (для update_*)"
         }
       },
       "required": [
@@ -670,25 +641,25 @@
             "list",
             "cancel"
           ],
-          "description": "действие"
+          "description": "create | list | cancel"
         },
         "text": {
           "type": "string",
-          "description": "текст напоминания"
+          "description": "что напомнить, коротко"
         },
         "when_date": {
           "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-          "description": "дата ГГГГ-ММ-ДД"
+          "description": "ГГГГ-ММ-ДД из справки"
         },
         "when_time": {
           "type": "string",
           "pattern": "^\\d{2}:\\d{2}$",
-          "description": "время ЧЧ:ММ"
+          "description": "время ЧЧ:ММ по часам клиента"
         },
         "in_minutes": {
           "type": "number",
-          "description": "через сколько минут"
+          "description": "через сколько минут, если сказано относительно"
         },
         "repeat": {
           "type": "string",
@@ -696,11 +667,11 @@
             "daily",
             "weekly"
           ],
-          "description": "повтор"
+          "description": "daily | weekly, иначе пусто"
         },
         "id": {
-          "type": "string",
-          "description": "номер напоминания для cancel"
+          "type": "number",
+          "description": "номер напоминания для отмены"
         }
       },
       "required": [
@@ -710,33 +681,18 @@
     }
   },
   {
-    "name": "get_research_report",
-    "description": "Достаёт сохранённый /research-разбор и САМ отправляет PDF клиенту (новый разбор не запускает, лимит не тратит). query — 1–2 ключевых слова темы (поиск по основам слов); пустой — самый свежий; при промахе вернёт список сохранённых тем. Вызывай всегда, когда клиент просит прислать или вспомнить разбор.",
+    "name": "get_period_report",
+    "description": "Готовый свод за период для отчёта о прогрессе: тренировки, питание, расход, вес, шаги, замеры, рекорды — посчитано системой. period_days: 30 месяц, 7 неделя. Вызывай на /progress и любую просьбу про итоги; числа не пересчитывай.",
     "input_schema": {
       "type": "object",
       "properties": {
-        "query": {
-          "type": "string",
-          "description": "1–2 ключевых слова темы; пусто — самый свежий"
-        }
-      },
-      "required": [],
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "web_search",
-    "description": "Веб-поиск по актуальным данным: свежие исследования, новые препараты и добавки, цены, версии, вопросы «что сейчас / последние данные». Не для того, что знаешь сам (техника, физиология, общие принципы питания). Вход — запрос по-русски. Возвращает text (сводка) и sources (ссылки).",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "query": {
-          "type": "string",
-          "description": "поисковый запрос по-русски"
+        "period_days": {
+          "type": "number",
+          "description": "длина периода в днях: 30 месяц, 7 неделя"
         }
       },
       "required": [
-        "query"
+        "period_days"
       ],
       "additionalProperties": false
     }
