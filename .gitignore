@@ -5,3 +5,8 @@
 node_modules/
 .venv/
 __pycache__/
+
+# стенд проверки качества
+.venv/
+__pycache__/
+eval/out/

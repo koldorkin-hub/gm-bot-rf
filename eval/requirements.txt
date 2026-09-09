@@ -1,0 +1,5 @@
+# Стенд проверки качества. Ставится в venv: python3 -m venv .venv && .venv/bin/pip install -r eval/requirements.txt
+anthropic>=1.4          # эталонный прогон через Claude и судья
+requests>=2.31          # OpenAI-совместимые площадки: Cloud.ru, Yandex AI Studio, свой vLLM
+PyYAML>=6.0             # сценарии и конфигурация
+jsonschema>=4.19        # валидация аргументов инструментов

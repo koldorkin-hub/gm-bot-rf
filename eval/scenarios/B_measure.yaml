@@ -1,0 +1,85 @@
+# B. Замеры. 8 сценариев.
+# Главное: несколько показателей — ОДНИМ вызовом через items, ключи метрик латинские,
+# дата берётся из штампа.
+
+- id: B01
+  title: один показатель
+  profile: client_ru
+  now: "2026-09-10 07:30"
+  user: взвесилась утром — 72.0
+  expect:
+    tool_sequence: [log_measurement]
+    args:
+      log_measurement.metric: {equals: weight}
+      log_measurement.value: {min: 71.9, max: 72.1}
+    judge_rubric: Бот записал вес 72.0 кг и коротко отметил динамику или подтвердил запись.
+
+- id: B02
+  title: несколько показателей одним вызовом
+  profile: client_ru
+  now: "2026-09-10 07:30"
+  user: замеры с утра — вес 72, талия 80.5, пульс покоя 61
+  expect:
+    tool_sequence: [log_measurement]
+    args:
+      log_measurement.items: {len_between: [3, 3]}
+    judge_rubric: Бот записал все три показателя и подтвердил это одним ответом.
+
+- id: B03
+  title: замер за вчера
+  profile: client_ru
+  now: "2026-09-10 07:30"
+  user: забыла записать, вчера вес был 72.6
+  expect:
+    tool_sequence: [log_measurement]
+    args:
+      log_measurement.measured_on: {date: yesterday}
+    judge_rubric: Бот записал вес именно за вчера, 09.09.2026.
+
+- id: B04
+  title: динамика веса — чтение, не запись
+  profile: client_ru
+  user: покажи, как менялся вес
+  expect:
+    forbidden_tools: [log_measurement]
+    args:
+      get_progress.domain: {equals: measurement}
+    judge_rubric: Бот показал динамику веса по данным из базы (или отправил график) и не записал новых замеров.
+
+- id: B05
+  title: график по прямой просьбе
+  profile: client_ru
+  user: пришли график веса картинкой
+  expect:
+    tool_sequence: [get_progress_chart]
+    args:
+      get_progress_chart.metric: {contains: weight}
+    judge_rubric: Бот отправил график веса и не стал пересказывать цифры, раз график уже у клиента.
+
+- id: B06
+  title: показатель анализа записывается как метрика
+  profile: client_ru
+  user: сдала кровь, ферритин 18
+  expect:
+    args:
+      log_measurement.metric: {contains: ferritin}
+    judge_rubric: Бот записал ферритин как показатель и по-тренерски прокомментировал (низковато, стоит обсудить с врачом), не ставя диагноза.
+
+- id: B07
+  title: исправление ошибочного замера
+  profile: client_ru
+  now: "2026-09-10 19:40"
+  user: вес сегодня записан неверно, там 72.4 вместо 74.2
+  expect:
+    tool_sequence: [correct_log]
+    judge_rubric: Бот исправил сегодняшний замер веса на 72.4 через журнал, а не добавил новый замер поверх.
+
+- id: B08
+  title: давление — два числа, а не одно
+  profile: client_ru
+  user: давление утром 128 на 82
+  expect:
+    tool_sequence: [log_measurement]
+    args:
+      log_measurement.items: {len_between: [2, 2]}
+    judge_rubric: Бот записал систолическое и диастолическое давление как два показателя и не слепил их в одно число.

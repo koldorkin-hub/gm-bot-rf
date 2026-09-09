@@ -1,0 +1,167 @@
+# A. Еда: lookup_food → log_food. 15 сценариев.
+# Проверяется главное правило трекинга: цифры БЖУ берутся из справочника, а не из головы
+# модели, и запись идёт с датой из штампа, а не с серверной.
+
+- id: A01
+  title: запись простого продукта с весом
+  profile: client_ru
+  now: "2026-09-10 08:15"
+  user: съел 150 г варёной гречки
+  expect:
+    tool_sequence: [lookup_food, log_food]
+    args:
+      lookup_food.query: {contains: гречк}
+      log_food.kcal: {min: 140, max: 190}
+      log_food.description: {contains: гречк}
+    buttons: optional
+    judge_rubric: Бот подтвердил запись гречки и назвал калорийность порции около 165 ккал. Не выдумывал цифры сверх справочника.
+
+- id: A02
+  title: завтрак из двух продуктов
+  profile: client_ru
+  now: "2026-09-10 08:15"
+  user: на завтрак овсянка на воде 250 г и банан
+  expect:
+    tool_sequence: [lookup_food, lookup_food, log_food]
+    args:
+      log_food.meal_type: {equals: breakfast}
+    judge_rubric: Бот записал завтрак из овсянки и банана и назвал итог по калориям. Оба продукта учтены.
+
+- id: A03
+  title: еда за вчера — дата из штампа, не сегодняшняя
+  profile: client_ru
+  now: "2026-09-10 08:15"
+  user: вчера на ужин был борщ, тарелка примерно 400 г
+  expect:
+    tool_sequence: [lookup_food, log_food]
+    args:
+      log_food.eaten_on: {date: yesterday}
+      log_food.meal_type: {equals: dinner}
+    judge_rubric: Бот записал борщ именно за вчера, 09.09.2026, и не перепутал день.
+
+- id: A04
+  title: вопрос о калорийности без записи
+  profile: client_ru
+  user: сколько калорий в куриной грудке?
+  expect:
+    tool_sequence: [lookup_food]
+    forbidden_tools: [log_food]
+    args:
+      lookup_food.query: {contains: куриная грудка}
+    judge_rubric: Бот назвал калорийность куриной грудки около 137 ккал на 100 г и НЕ записал ничего в дневник, потому что его об этом не просили.
+
+- id: A05
+  title: продукта нет в справочнике — честная оценка
+  profile: client_ru
+  user: съел хачапури, грамм 200
+  expect:
+    tool_sequence: [lookup_food, log_food]
+    judge_rubric: Справочник хачапури не знает. Бот честно предупредил, что цифры приблизительные, и всё равно записал приём пищи. Не сделал вид, что цифры точные.
+
+- id: A06
+  title: штучный продукт — пересчёт на граммы
+  profile: client_ru
+  user: запиши три яйца всмятку
+  expect:
+    tool_sequence: [lookup_food, log_food]
+    args:
+      log_food.kcal: {min: 180, max: 340}
+    judge_rubric: Бот пересчитал три яйца в граммы (около 165 г) и записал примерно 260 ккал. Порядок величины разумный.
+
+- id: A07
+  title: что я ел сегодня — чтение журнала, а не память переписки
+  profile: client_ru
+  now: "2026-09-10 19:40"
+  user: что я сегодня ел?
+  expect:
+    tool_sequence: [get_progress]
+    forbidden_tools: [log_food]
+    args:
+      get_progress.domain: {equals: food}
+      get_progress.date: {date: today}
+    judge_rubric: Бот прочитал дневник за сегодня и пересказал записи с итогом по калориям. Не выдумывал еду от себя.
+
+- id: A08
+  title: удаление записи по явной просьбе
+  profile: client_ru
+  now: "2026-09-10 19:40"
+  user: удали запись про овсянку, я её не ел
+  expect:
+    tool_sequence: [correct_log]
+    args:
+      correct_log.action: {any_of: [list_food, delete_food]}
+    judge_rubric: Бот нашёл запись про овсянку и удалил её или переспросил подтверждение перед удалением. Оба варианта приемлемы.
+
+- id: A09
+  title: исправление веса порции
+  profile: client_ru
+  now: "2026-09-10 19:40"
+  user: ошибся, овсянки было не 250, а 150 грамм
+  expect:
+    tool_sequence: [correct_log, correct_log]
+    args:
+      correct_log[0].action: {equals: list_food}
+      correct_log[1].action: {equals: update_food}
+    judge_rubric: Бот исправил запись овсянки на 150 г и назвал новую калорийность. Не создал вторую запись вместо исправления.
+
+- id: A10
+  title: норма калорий — только инструментом
+  profile: client_ru
+  user: посчитай мою норму калорий
+  expect:
+    tool_sequence: [calculate]
+    forbidden_tools: [log_food]
+    args:
+      calculate.kind: {equals: calories}
+    judge_rubric: Бот посчитал норму инструментом и назвал цифры поддержания и дефицита. Не считал в уме.
+
+- id: A11
+  title: обед из двух продуктов с весами
+  profile: client_ru
+  now: "2026-09-10 14:05"
+  user: на обед лосось 200 г и рис 150 г
+  expect:
+    tool_sequence: [lookup_food, lookup_food, log_food]
+    args:
+      log_food.meal_type: {equals: lunch}
+      log_food.kcal: {min: 480, max: 700}
+    judge_rubric: Бот учёл оба продукта, назвал общую калорийность порядка 570 ккал и записал обед.
+
+- id: A12
+  title: итоги за неделю — период, а не один день
+  profile: client_ru
+  user: сколько белка я съедала за последнюю неделю?
+  expect:
+    tool_sequence: [get_progress]
+    args:
+      get_progress.domain: {equals: food}
+    judge_rubric: Бот обратился к дневнику за неделю (период, а не один день) и ответил по данным оттуда.
+
+- id: A13
+  title: жидкость — единица измерения не путается с граммами
+  profile: client_ru
+  user: выпила стакан кефира, 250 мл
+  expect:
+    tool_sequence: [lookup_food, log_food]
+    judge_rubric: Бот записал кефир, честно пометив цифры приблизительными (в справочнике его нет), и не перепутал миллилитры с граммами по смыслу ответа.
+
+- id: A14
+  title: тот же трекинг у владельца
+  profile: owner
+  user: закинул 200 г творога
+  expect:
+    tool_sequence: [lookup_food, log_food]
+    args:
+      log_food.kcal: {min: 200, max: 290}
+    judge_rubric: Бот записал творог владельцу так же аккуратно, как клиенту, с калорийностью около 242 ккал.
+
+- id: A15
+  title: составное блюдо раскладывается на продукты
+  profile: client_ru
+  now: "2026-09-10 14:05"
+  user: обед был куриная грудка 180 г с гречкой 200 г
+  expect:
+    tool_sequence: [lookup_food, lookup_food, log_food]
+    args:
+      log_food.kcal: {min: 400, max: 550}
+    judge_rubric: Бот нашёл оба продукта в справочнике, сложил порции (около 467 ккал) и записал обед.

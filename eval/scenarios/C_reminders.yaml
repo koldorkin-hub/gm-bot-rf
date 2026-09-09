@@ -1,0 +1,112 @@
+# C. Напоминания и даты. 10 сценариев.
+# Даты агент НЕ вычисляет — берёт из штампа и календаря. Это самое хрупкое место при
+# смене модели: у открытых моделей чаще всего врут именно числа в аргументах.
+
+- id: C01
+  title: завтра в семь утра
+  profile: client_ru
+  now: "2026-09-10 08:15"
+  user: напомни завтра в 7 утра выпить креатин
+  expect:
+    tool_sequence: [set_reminder]
+    args:
+      set_reminder.action: {equals: create}
+      set_reminder.when_date: {date: tomorrow}
+      set_reminder.when_time: {equals: "07:00"}
+    judge_rubric: Бот подтвердил словами, что напомнит завтра утром, и назвал время.
+
+- id: C02
+  title: через полчаса — минутами, а не датой
+  profile: client_ru
+  now: "2026-09-10 08:15"
+  user: напомни через полчаса про воду
+  expect:
+    tool_sequence: [set_reminder]
+    args:
+      set_reminder.in_minutes: {min: 30, max: 30}
+      set_reminder.when_date: {absent: true}
+    judge_rubric: Бот поставил напоминание через 30 минут и сказал об этом.
+
+- id: C03
+  title: ежедневное напоминание
+  profile: client_ru
+  now: "2026-09-10 08:15"
+  user: каждый день в 9 утра напоминай про витамин D
+  expect:
+    tool_sequence: [set_reminder]
+    args:
+      set_reminder.repeat: {equals: daily}
+      set_reminder.when_time: {equals: "09:00"}
+    judge_rubric: Бот поставил ежедневное напоминание на 9 утра и подтвердил регулярность.
+
+- id: C04
+  title: время без даты и оно ещё не прошло — сегодня
+  profile: client_ru
+  now: "2026-09-10 08:15"
+  user: напомни в 18:30 про тренировку
+  expect:
+    tool_sequence: [set_reminder]
+    args:
+      set_reminder.when_date: {date: today}
+      set_reminder.when_time: {equals: "18:30"}
+    judge_rubric: Бот поставил напоминание на сегодня на 18:30 — время ещё не прошло.
+
+- id: C05
+  title: время без даты, но оно уже прошло — завтра
+  profile: client_ru
+  now: "2026-09-10 21:40"
+  user: напомни в 8 утра про замер
+  expect:
+    tool_sequence: [set_reminder]
+    args:
+      set_reminder.when_date: {date: tomorrow}
+      set_reminder.when_time: {equals: "08:00"}
+    judge_rubric: Сейчас вечер, 8 утра сегодня уже прошло — бот поставил напоминание на завтра и сказал об этом.
+
+- id: C06
+  title: список напоминаний
+  profile: client_ru
+  user: какие у меня стоят напоминания?
+  expect:
+    tool_sequence: [set_reminder]
+    args:
+      set_reminder.action: {equals: list}
+    judge_rubric: Бот перечислил активные напоминания с номерами.
+
+- id: C07
+  title: отмена — сначала список, потом отмена
+  profile: client_ru
+  user: отмени напоминание про воду
+  expect:
+    tool_sequence: [set_reminder, set_reminder]
+    args:
+      set_reminder[0].action: {equals: list}
+      set_reminder[1].action: {equals: cancel}
+    judge_rubric: Бот сначала посмотрел список, потом отменил нужное напоминание и подтвердил отмену.
+
+- id: C08
+  title: какое сегодня число — читает справку, не вычисляет
+  profile: client_ru
+  now: "2026-09-10 08:15"
+  user: какой сегодня день недели и число?
+  expect:
+    no_tools: true
+    judge_rubric: Бот назвал четверг, 10 сентября 2026 года. Ровно эту дату, без оговорок про то, что он не знает текущего времени.
+
+- id: C09
+  title: клиент спорит с датой
+  profile: client_ru
+  now: "2026-09-10 08:15"
+  user: у тебя дата неправильная, сегодня уже двенадцатое
+  expect:
+    no_tools: true
+    judge_rubric: >-
+      Бот не спорит и не выдумывает: называет дату из справки (10.09.2026) и предлагает проверить часовой пояс в профиле. Не соглашается, что сегодня 12-е, и не заявляет, что его данные устарели.
+
+- id: C10
+  title: «напиши мне первым» — у бота есть инструмент
+  profile: client_ru
+  now: "2026-09-10 08:15"
+  user: ты же не можешь мне сам написать, просто скажи, во сколько мне тренироваться
+  expect:
+    judge_rubric: Бот НЕ говорит «я не умею писать первым» или «заведи будильник» — у него есть напоминания, и он либо предлагает поставить напоминание, либо просто отвечает на вопрос о времени тренировки. Утверждение о собственной неспособности писать первым — провал.
