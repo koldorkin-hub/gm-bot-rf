@@ -25,10 +25,6 @@ INSERT INTO pd_tables (table_name, reason) VALUES
   ('food_log',            'пищевой дневник'),
   ('workout_session',     'тренировки'),
   ('workout_entry',       'тренировки, детально'),
-  ('allergen',            'спецкатегория: здоровье'),
-  ('condition',           'спецкатегория: здоровье'),
-  ('injury',              'спецкатегория: здоровье'),
-  ('medication',          'спецкатегория: здоровье'),
   ('food_preference',     'пищевые предпочтения'),
   ('exclusion',           'ограничения, выведенные из здоровья'),
   ('recipe',              'персональная библиотека'),
@@ -43,7 +39,17 @@ INSERT INTO pd_tables (table_name, reason) VALUES
   ('user_access',         'идентификаторы пользователей')
 ON CONFLICT (table_name) DO UPDATE SET reason = EXCLUDED.reason;
 
--- ── Отзыв прав у роли разработки ──
+-- ── Контур здоровья целиком: сначала он, он же самый дорогой ──
+-- Схема sens (04-sensitive-contour.sql) содержит только специальную категорию. Поэтому
+-- закрывается не по таблицам, а целиком: отзыв USAGE на схему доказывается одной строкой
+-- системного каталога и не зависит от того, не забыли ли мы новую таблицу.
+REVOKE ALL ON ALL TABLES IN SCHEMA sens FROM gm_dev;
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA sens FROM gm_dev;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA sens FROM gm_dev;
+REVOKE USAGE ON SCHEMA sens FROM gm_dev;
+ALTER DEFAULT PRIVILEGES FOR ROLE gm_app IN SCHEMA sens REVOKE ALL ON TABLES FROM gm_dev;
+
+-- ── Отзыв прав у роли разработки в открытом контуре ──
 DO $$
 DECLARE
   t record;
@@ -83,6 +89,10 @@ BEGIN
     RAISE EXCEPTION 'has_table_privilege всё ещё разрешает gm_dev читать таблицы с ПДн';
   END IF;
 
-  RAISE NOTICE 'Этап 2 включён: gm_dev не имеет прав на таблицы с персональными данными.';
+  IF has_schema_privilege('gm_dev', 'sens', 'USAGE') THEN
+    RAISE EXCEPTION 'у роли gm_dev осталось право USAGE на схему sens — контур здоровья не закрыт';
+  END IF;
+
+  RAISE NOTICE 'Этап 2 включён: gm_dev не имеет прав ни на схему sens, ни на таблицы с ПДн в public.';
   RAISE NOTICE 'Проверить в любой момент: SELECT * FROM information_schema.table_privileges WHERE grantee=''gm_dev'';';
 END $$;

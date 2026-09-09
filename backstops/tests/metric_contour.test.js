@@ -59,6 +59,17 @@ test('пустая пачка не роняет разбор', () => {
   assert.deepStrictEqual(splitByContour([]), { open: [], sens: [] });
 });
 
+test('белый список в коде и в базе — один и тот же', () => {
+  // Список живёт в двух местах: триггер базы отказывает в записи, код разводит по контурам.
+  // Разойдутся — и запись либо упадёт на боевом, либо приземлится не в тот контур.
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const sql = fs.readFileSync(path.join(__dirname, '..', '..', 'schema', '04-sensitive-contour.sql'), 'utf8');
+  const block = sql.split('INSERT INTO public.metric_whitelist')[1].split('ON CONFLICT')[0];
+  const inSql = [...block.matchAll(/\('([a-z_]+)','/g)].map((m) => m[1]).sort();
+  assert.deepStrictEqual(inSql, Object.keys(OPEN).sort());
+});
+
 test('имя показателя нормализуется одинаково при разборе пачки', () => {
   const { open } = splitByContour([{ metric: ' Weight ', value: 72 }]);
   assert.strictEqual(open[0].metric, 'weight');
