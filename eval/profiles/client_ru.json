@@ -14,8 +14,18 @@
   "days_per_week": 3,
   "diet_type": "обычное питание",
   "target_kcal": 1750,
-  "disciplines": [{"discipline": "зал", "goal": "тонус и спина", "priority": 1},
-                  {"discipline": "ходьба", "goal": "10 000 шагов", "priority": 2}],
+  "disciplines": [
+    {
+      "discipline": "зал",
+      "goal": "тонус и спина",
+      "priority": 1
+    },
+    {
+      "discipline": "ходьба",
+      "goal": "10 000 шагов",
+      "priority": 2
+    }
+  ],
   "plan_started_on": "2026-08-10",
   "plan_week": "Пн зал (низ), Ср зал (верх), Сб длинная прогулка",
   "client_summary": "Работает в офисе, вечерами устаёт. Не любит бег. Готовит сама, обедает вне дома.",
@@ -24,5 +34,6 @@
   "injuries": [],
   "medications": [],
   "exclusions": [],
-  "today_ledger": "записей нет"
+  "today_ledger": "записей нет",
+  "health_consent_at": "2026-08-15"
 }

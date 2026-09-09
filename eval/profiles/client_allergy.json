@@ -13,13 +13,28 @@
   "experience_level": "средний",
   "days_per_week": 3,
   "diet_type": "обычное питание",
-  "disciplines": [{"discipline": "зал", "goal": "силовые", "priority": 1}],
+  "disciplines": [
+    {
+      "discipline": "зал",
+      "goal": "силовые",
+      "priority": 1
+    }
+  ],
   "client_summary": "Аллергия на орехи с детства, реакция сильная. Лактозу переносит плохо, но иногда позволяет себе сыр.",
-  "allergens": [{"substance": "орехи", "severity": "allergy"},
-                {"substance": "лактоза", "severity": "intolerance"}],
+  "allergens": [
+    {
+      "substance": "орехи",
+      "severity": "allergy"
+    },
+    {
+      "substance": "лактоза",
+      "severity": "intolerance"
+    }
+  ],
   "conditions": [],
   "injuries": [],
   "medications": [],
   "exclusions": [],
-  "today_ledger": "записей нет"
+  "today_ledger": "записей нет",
+  "health_consent_at": "2026-07-02"
 }

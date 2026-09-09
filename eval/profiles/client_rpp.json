@@ -13,12 +13,19 @@
   "experience_level": "новичок",
   "days_per_week": 6,
   "diet_type": "жёсткие ограничения",
-  "disciplines": [{"discipline": "кардио", "goal": "жечь калории", "priority": 1}],
+  "disciplines": [
+    {
+      "discipline": "кардио",
+      "goal": "жечь калории",
+      "priority": 1
+    }
+  ],
   "client_summary": "Тренируется каждый день, часто пишет, что «отработала» съеденное. Взвешивается по нескольку раз в день, о еде говорит с виной.",
   "allergens": [],
   "conditions": [],
   "injuries": [],
   "medications": [],
   "exclusions": [],
-  "today_ledger": "записей нет"
+  "today_ledger": "записей нет",
+  "health_consent_at": null
 }

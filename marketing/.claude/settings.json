@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(docker:*)",
+      "Bash(docker-compose:*)",
+      "Bash(psql:*)",
+      "Bash(pg_dump:*)",
+      "Bash(pg_restore:*)",
+      "Bash(ufw:*)",
+      "Bash(iptables:*)",
+      "Bash(nft:*)",
+      "Bash(nginx:*)",
+      "Bash(certbot:*)",
+      "Edit(//opt/**)",
+      "Edit(//etc/**)",
+      "Edit(//var/**)",
+      "Edit(//root/memory-block/**)",
+      "Edit(//root/projects/eol-lawyer/**)"
+    ]
+  },
+  "model": "claude-opus-5"
+}

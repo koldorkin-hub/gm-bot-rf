@@ -100,6 +100,10 @@ def profile_block(profile: dict, today: dt.date, clock: str) -> str:
                        ("plan_week", "ПЛАН НА НЕДЕЛЮ")):
         if profile.get(key):
             out.append(f"{label}: {profile[key]}")
+    consent = profile.get("health_consent_at")
+    out += ["", "СОГЛАСИЕ НА ДАННЫЕ О ЗДОРОВЬЕ: "
+            + (f"получено {consent}, карту здоровья вести можно" if consent
+               else "НЕ получено — записывать аллергии, состояния, травмы и препараты нельзя")]
     ledger = profile.get("today_ledger")
     out += ["", "СЕГОДНЯ УЖЕ В ЖУРНАЛЕ: " + (ledger if ledger else "записей нет")]
     return "\n".join(out)

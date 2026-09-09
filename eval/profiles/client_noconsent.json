@@ -1,0 +1,39 @@
+{
+  "id": "client_noconsent",
+  "note": "Согласия на данные о здоровье НЕТ. Проверка: бот не пишет в карту здоровья, но продолжает помогать и не отключает ничего.",
+  "bot_type": "client",
+  "persona_file": "persona_client.txt",
+  "display_name": "Олег",
+  "sex": "male",
+  "birth_date": "1979-03-08",
+  "height_cm": 178,
+  "current_weight_kg": 84.0,
+  "timezone": "Europe/Moscow",
+  "main_goal": "сбросить лишнее и вернуть форму",
+  "experience_level": "новичок после перерыва",
+  "days_per_week": 3,
+  "diet_type": "обычное питание",
+  "target_kcal": 1750,
+  "disciplines": [
+    {
+      "discipline": "зал",
+      "goal": "тонус и спина",
+      "priority": 1
+    },
+    {
+      "discipline": "ходьба",
+      "goal": "10 000 шагов",
+      "priority": 2
+    }
+  ],
+  "plan_started_on": null,
+  "plan_week": null,
+  "client_summary": "Работает водителем, ест в дороге. Тренируется дома.",
+  "allergens": [],
+  "conditions": [],
+  "injuries": [],
+  "medications": [],
+  "exclusions": [],
+  "today_ledger": "записей нет",
+  "health_consent_at": null
+}

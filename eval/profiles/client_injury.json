@@ -13,14 +13,40 @@
   "experience_level": "опытный",
   "days_per_week": 2,
   "diet_type": "обычное питание",
-  "disciplines": [{"discipline": "зал", "goal": "восстановление", "priority": 1}],
+  "disciplines": [
+    {
+      "discipline": "зал",
+      "goal": "восстановление",
+      "priority": 1
+    }
+  ],
   "plan_started_on": "2026-09-01",
   "client_summary": "Травма колена в июле, сейчас реабилитация. Раньше приседал 120 кг.",
   "allergens": [],
   "conditions": [],
-  "injuries": [{"id": "inj-41", "area": "правое колено", "status": "rehab", "since": "2026-07-14"}],
+  "injuries": [
+    {
+      "id": "inj-41",
+      "area": "правое колено",
+      "status": "rehab",
+      "since": "2026-07-14"
+    }
+  ],
   "medications": [],
-  "exclusions": [{"scope": "load_tag", "value": "knee_dominant", "source_type": "injury", "source_ref": "inj-41"},
-                 {"scope": "load_tag", "value": "impact", "source_type": "injury", "source_ref": "inj-41"}],
-  "today_ledger": "записей нет"
+  "exclusions": [
+    {
+      "scope": "load_tag",
+      "value": "knee_dominant",
+      "source_type": "injury",
+      "source_ref": "inj-41"
+    },
+    {
+      "scope": "load_tag",
+      "value": "impact",
+      "source_type": "injury",
+      "source_ref": "inj-41"
+    }
+  ],
+  "today_ledger": "записей нет",
+  "health_consent_at": "2026-09-01"
 }
