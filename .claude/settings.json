@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(docker:*)",
+      "Bash(docker-compose:*)",
+      "Bash(psql:*)",
+      "Bash(pg_dump:*)",
+      "Bash(pg_restore:*)",
+      "Bash(ufw:*)",
+      "Bash(iptables:*)",
+      "Bash(nft:*)",
+      "Bash(nginx:*)",
+      "Bash(certbot:*)",
+      "Write(//opt/**)",
+      "Edit(//opt/**)",
+      "Write(//etc/**)",
+      "Edit(//etc/**)",
+      "Write(//var/**)",
+      "Edit(//var/**)",
+      "Write(//root/memory-block/**)",
+      "Edit(//root/memory-block/**)",
+      "Write(//root/projects/eol-lawyer/**)",
+      "Edit(//root/projects/eol-lawyer/**)"
+    ]
+  }
+}

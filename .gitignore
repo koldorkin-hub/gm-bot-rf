@@ -1,0 +1,7 @@
+.claude/settings.local.json
+.claude/memory/
+*.log
+*.tmp
+node_modules/
+.venv/
+__pycache__/
