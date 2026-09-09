@@ -1,0 +1,165 @@
+# Состав РФ-сервера. Запускается ТОЛЬКО на российском сервере.
+#
+# ⚠ На машине разработки (Fornex, Франкфурт) этот файл не запускать: там работает боевой бот
+#   на Claude, а Германия — не Россия. Запреты продублированы в .claude/settings.json.
+#
+# Состав и обоснование — research/РФ-СТЕК-03-периферия.md:
+#   n8n + Postgres      — ядро, как на боевом;
+#   asr (GigaAM-v3)     — распознавание речи на CPU, ошибок на русском втрое меньше Whisper,
+#                         OpenAI-совместимый /v1/audio/transcriptions вместо Groq;
+#   docling             — PDF/DOCX в текст; кириллицу в OCR включать РУКАМИ (issue #3433);
+#   gotenberg           — DOCX и HTML в PDF (уже используется на боевом);
+#   crawl4ai            — чтение страниц для веб-поиска;
+#   vllm                — профиль "gpu": нужен только для пути 2 (своя карта). По умолчанию
+#                         модель берётся по API у российского облака, и этот сервис не поднимается.
+#
+# Теги образов перед первым запуском ЗАПИНИТЬ ПО DIGEST: `docker compose pull` затем
+# `docker inspect --format '{{index .RepoDigests 0}}' <образ>`. Проверять состав — ./check.sh.
+
+name: gmbot-rf
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${PG_DB:-gm_memory}
+      POSTGRES_USER: ${PG_USER:-gm_app}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?нет PG_PASSWORD в .env}
+      # Инициализация: локаль ru_RU нужна для корректной сортировки русских строк
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=ru-RU"
+      TZ: ${TZ:-Europe/Moscow}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backup:/backup
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-gm_app} -d ${PG_DB:-gm_memory}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    ports:
+      - "127.0.0.1:5432:5432"   # наружу не выставляется никогда
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: ${PG_DB:-gm_memory}
+      DB_POSTGRESDB_USER: ${PG_USER:-gm_app}
+      DB_POSTGRESDB_PASSWORD: ${PG_PASSWORD:?нет PG_PASSWORD в .env}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?нет N8N_ENCRYPTION_KEY в .env}
+      # Часовой пояс: n8n считает cron в GENERIC_TIMEZONE — на боевом это уже стоило
+      # одной ошибки в расписании (knowledge/memory/n8n-deploy-gotchas.md, п.6).
+      GENERIC_TIMEZONE: ${TZ:-Europe/Moscow}
+      TZ: ${TZ:-Europe/Moscow}
+      # Данные исполнений: успешные НЕ сохраняем — иначе в базе оседают фото, PDF с анализами
+      # и переписка в открытом виде. Ошибочные храним 72 часа, они нужны для разбора сбоёв.
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: none
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      EXECUTIONS_DATA_MAX_AGE: 72
+      EXECUTIONS_DATA_PRUNE: "true"
+      # Шифрование полей контура здоровья (backstops/field_crypto.js) требует модуля crypto
+      # в Code-узлах: по умолчанию require в них запрещён.
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+      GM_FIELD_KEY: ${GM_FIELD_KEY:?нет GM_FIELD_KEY в .env}
+      N8N_HOST: ${N8N_HOST:?нет N8N_HOST в .env}
+      N8N_PROTOCOL: https
+      WEBHOOK_URL: https://${N8N_HOST}/
+      N8N_PROXY_HOPS: 1
+      N8N_RUNNERS_ENABLED: "true"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+    volumes:
+      - n8ndata:/home/node/.n8n
+      - ./files:/files
+    ports:
+      - "127.0.0.1:5678:5678"   # наружу только через nginx с TLS
+
+  asr:
+    # GigaAM-v3 (Сбер, MIT): ошибок на русском втрое меньше Whisper, 0 ГБ VRAM.
+    # OpenAI-совместимый эндпоинт — замена Groq сменой Base URL.
+    # ⚠ Вход строго float32: int16 даёт ПУСТУЮ строку без ошибки. Конвертация OGG→WAV 16k
+    #   делается здесь, а не в Code-узле n8n (там запрещён require).
+    # ⚠ Не применять VAD и автоусиление: на голосовых из Telegram они ухудшают распознавание.
+    image: ghcr.io/haiodo/oaitt:latest
+    restart: unless-stopped
+    environment:
+      MODEL: ${ASR_MODEL:-gigaam-v3-e2e-rnnt}
+      TZ: ${TZ:-Europe/Moscow}
+    volumes:
+      - asrmodels:/models
+    ports:
+      - "127.0.0.1:8081:8000"
+
+  docling:
+    # ⚠ Кириллица в OCR по умолчанию ВЫКЛЮЧЕНА (docling issue #3433), а ocr_lang в запросе
+    #   иногда игнорируется (issue #567). Язык задаётся здесь и проверяется ./check.sh
+    #   на настоящем PDF с русским текстом.
+    image: quay.io/docling-project/docling-serve-cpu:latest
+    restart: unless-stopped
+    environment:
+      DOCLING_SERVE_ENABLE_UI: "false"
+      DOCLING_SERVE_OCR_LANG: "rus+eng"
+      OMP_NUM_THREADS: "4"
+      TZ: ${TZ:-Europe/Moscow}
+    ports:
+      - "127.0.0.1:8082:5001"
+
+  gotenberg:
+    image: gotenberg/gotenberg:8
+    restart: unless-stopped
+    command: ["gotenberg", "--api-timeout=120s"]
+    ports:
+      - "127.0.0.1:8083:3000"
+
+  crawl4ai:
+    image: unclecode/crawl4ai:latest
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      TZ: ${TZ:-Europe/Moscow}
+    ports:
+      - "127.0.0.1:8084:11235"
+
+  vllm:
+    # Путь 2 — своя карта. По умолчанию НЕ поднимается: `docker compose --profile gpu up -d`.
+    # Флаги из research/РФ-СТЕК-04, чек-лист миграции, п.3.
+    profiles: ["gpu"]
+    image: vllm/vllm-openai:latest
+    restart: unless-stopped
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - hfcache:/root/.cache/huggingface
+    command:
+      - --model=${VLLM_MODEL:?нет VLLM_MODEL в .env}
+      - --revision=${VLLM_REVISION:?пин версии обязателен: хеш коммита модели}
+      - --max-model-len=32768
+      - --gpu-memory-utilization=0.92
+      - --kv-cache-dtype=fp8
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser=qwen3_coder
+      - --reasoning-parser=qwen3
+      - --limit-mm-per-prompt={"image":5}
+      - --mm-processor-cache-gb=1
+      - --default-chat-template-kwargs={"enable_thinking":false}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports:
+      - "127.0.0.1:8000:8000"
+
+volumes:
+  pgdata:
+  n8ndata:
+  asrmodels:
+  hfcache:

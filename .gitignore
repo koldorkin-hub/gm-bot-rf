@@ -10,3 +10,8 @@ __pycache__/
 .venv/
 __pycache__/
 eval/out/
+
+# окружение РФ-сервера
+deploy/.env
+deploy/files/
+deploy/backup/
