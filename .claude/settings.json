@@ -11,15 +11,10 @@
       "Bash(nft:*)",
       "Bash(nginx:*)",
       "Bash(certbot:*)",
-      "Write(//opt/**)",
       "Edit(//opt/**)",
-      "Write(//etc/**)",
       "Edit(//etc/**)",
-      "Write(//var/**)",
       "Edit(//var/**)",
-      "Write(//root/memory-block/**)",
       "Edit(//root/memory-block/**)",
-      "Write(//root/projects/eol-lawyer/**)",
       "Edit(//root/projects/eol-lawyer/**)"
     ]
   },
