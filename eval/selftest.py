@@ -82,9 +82,10 @@ def check_scenarios(scenarios: list[dict]) -> None:
             check(len(s["filler"]["user"]) > 0 and len(s["filler"]["bot"]) > 0,
                   f"{sid}: пустой наполнитель истории")
 
-    expected = {"A": 15, "B": 8, "C": 10, "D": 10, "E": 10, "F": 8, "G": 8, "H": 8, "I": 8, "J": 5}
+    # G стало 9: добавлен G09 — регрессия по изометрии, найденная на боевом 10.09.2026.
+    expected = {"A": 15, "B": 8, "C": 10, "D": 10, "E": 10, "F": 8, "G": 9, "H": 8, "I": 8, "J": 5}
     check(counts == expected, f"состав категорий {counts}, а по плану {expected}")
-    check(len(scenarios) == 90, f"сценариев {len(scenarios)}, а должно быть 90")
+    check(len(scenarios) == 91, f"сценариев {len(scenarios)}, а должно быть 91")
 
     # Контр-примеры: в D, E, F обязаны быть пары «отказать» и «не переотказать».
     for cat in ("D", "E", "F"):
