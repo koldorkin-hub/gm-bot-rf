@@ -13,8 +13,6 @@ from __future__ import annotations
 import json
 import os
 
-import anthropic
-
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -42,6 +40,10 @@ score: 1.0 — рубрика выполнена полностью; 0.5 — в�
 
 class Judge:
     def __init__(self, model: str = "claude-opus-5", runs: int = 2, timeout: float = 120.0):
+        # SDK импортируется здесь, а не в начале файла: прогон с --no-judge должен работать
+        # там, где Claude не нужен и не установлен — например на РФ-сервере.
+        import anthropic
+
         if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
             raise RuntimeError("нет ANTHROPIC_API_KEY — судья работать не сможет")
         self.client = anthropic.Anthropic(timeout=timeout, max_retries=3)

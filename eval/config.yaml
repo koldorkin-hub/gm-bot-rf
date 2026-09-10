@@ -53,8 +53,9 @@ providers:
   vllm:
     kind: openai_compat
     model: Qwen/Qwen3.8-27B-AWQ
-    base_url: http://127.0.0.1:8000/v1
+    base_url: http://127.0.0.1:8000/v1   # переопределяется ключом --base-url или LLM_URL
     api_key_env: VLLM_API_KEY
+    api_key_required: false              # свой сервер, ключ произвольный
     max_tokens: 4096
     timeout: 120
     extra_body:

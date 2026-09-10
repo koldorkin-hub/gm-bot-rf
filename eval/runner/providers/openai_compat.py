@@ -22,7 +22,7 @@ from .base import Provider, Turn
 class OpenAICompatProvider(Provider):
     def __init__(self, model: str, base_url: str, api_key_env: str = "OPENAI_API_KEY",
                  max_tokens: int = 4096, timeout: float = 120.0, temperature: float | None = None,
-                 extra_body: dict | None = None, **_):
+                 extra_body: dict | None = None, api_key_required: bool = True, **_):
         self.name = f"openai:{model}"
         self.model = model
         self.base_url = base_url.rstrip("/")
@@ -32,7 +32,11 @@ class OpenAICompatProvider(Provider):
         self.extra_body = extra_body or {}
         self.key = os.environ.get(api_key_env, "")
         if not self.key:
-            raise RuntimeError(f"нет переменной окружения {api_key_env} — нечем ходить в {base_url}")
+            # У своего vLLM ключ произвольный — требовать переменную незачем.
+            # У облачной площадки её отсутствие означает, что прогон пойдёт в никуда.
+            if api_key_required:
+                raise RuntimeError(f"нет переменной окружения {api_key_env} — нечем ходить в {base_url}")
+            self.key = "none"
         self.session = requests.Session()
 
     # --- перевод внутреннего формата в формат OpenAI и обратно ---

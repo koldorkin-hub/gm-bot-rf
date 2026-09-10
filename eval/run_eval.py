@@ -12,6 +12,7 @@ import argparse
 import concurrent.futures as futures
 import datetime as dt
 import json
+import os
 import pathlib
 import sys
 
@@ -58,11 +59,22 @@ def main() -> int:
     ap.add_argument("--no-judge", action="store_true", help="без судьи (без ключа Claude)")
     ap.add_argument("--out", help="путь к файлу результата")
     ap.add_argument("--workers", type=int, default=None)
+    # Адрес и модель задаются на месте: у арендованной карты свой адрес, а имя модели
+    # зависит от того, какую сборку квантования поставили. Править config.yaml ради
+    # одного прогона — лишний шанс забыть и померить не то.
+    ap.add_argument("--base-url", default=os.environ.get("LLM_URL"),
+                    help="переопределить base_url провайдера (или переменная LLM_URL)")
+    ap.add_argument("--model", default=os.environ.get("LLM_MODEL"),
+                    help="переопределить имя модели (или переменная LLM_MODEL)")
     args = ap.parse_args()
 
     cfg = yaml.safe_load((ROOT / "config.yaml").read_text(encoding="utf-8"))
     if args.provider not in cfg["providers"]:
         raise SystemExit(f"нет провайдера {args.provider} в config.yaml")
+    if args.base_url:
+        cfg["providers"][args.provider]["base_url"] = args.base_url
+    if args.model:
+        cfg["providers"][args.provider]["model"] = args.model
     tools = json.loads((ROOT / "tools.json").read_text(encoding="utf-8"))
     scenarios = load_scenarios(args.only, args.ids)
     if not scenarios:
