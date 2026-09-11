@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: reference
   originSessionId: 52640038-09b4-432e-9afb-c8158670a305
-  modified: 2026-09-11T11:31:48.605Z
+  modified: 2026-09-11T13:28:02.839Z
 ---
 
 База `n8n_memory` на боевом сервере, роль приложения `n8n_user` (см. [[ai-trainer-infra]]).
@@ -31,5 +31,9 @@ metadata:
 **9. На `source` стоят CHECK:** `measurement.source` ∈ (client, extracted, device); `workout_session.source`, `food_log.source` ∈ (client, extracted). Тестовые фикстуры с `'test'` база отвергает — брать значение из существующих строк. На `reminder.status` ограничения нет (`skipped_done` добавлен без миграции).
 
 **10. Проверочные SELECT по `clients` — никогда `*` и никогда `bot_token`/`webhook_secret` в выводе.** 11.09.2026 в диагностике тикера утёк токен бота users в вывод. Перечислять колонки явно.
+
+**11. psql `\gset` СНИМАЕТ переменную, если значение NULL.** Проверка вида `SELECT CASE WHEN :'x_id' = '' …` после `\gset x_` падает «syntax error at or near ":"» — переменной нет, подстановка не происходит. Отдавать id строкой `coalesce(id::text,'')`. Запрос с изменяющими CTE нельзя обернуть в `SELECT … FROM (…)` — править только финальную проекцию.
+
+**12. `CREATE OR REPLACE FUNCTION` не меняет RETURNS TABLE** — нужен `DROP FUNCTION` по старой сигнатуре. Новый аргумент с `DEFAULT` сохраняет старые вызовы с меньшим числом аргументов — так миграция идёт до деплоя без простоя (set_training_program, 11.09.2026).
 
 Смежные грабли: [[n8n-alerting-gotchas]], [[n8n-deploy-gotchas]], [[n8n-dataflow-gotchas]].

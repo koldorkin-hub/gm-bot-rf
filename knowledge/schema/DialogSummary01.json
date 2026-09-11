@@ -1,0 +1,244 @@
+{
+  "updatedAt": "2026-09-11T13:26:22.000Z",
+  "createdAt": "2026-08-12T20:04:04.376Z",
+  "id": "DialogSummary01",
+  "name": "Память — скользящая сводка диалога",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "7,37 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "s1000000-0000-4000-8000-000000000001",
+      "name": "Каждые полчаса",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -800,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.bot_id, c.user_id, c.max_id, c.last_id, c.current_summary, EXISTS (SELECT 1 FROM training_program tp WHERE tp.bot_id = c.bot_id AND tp.user_id = c.user_id AND tp.status = 'active') AS has_program, (SELECT string_agg(line, E'\\n' ORDER BY sid) FROM (SELECT h2.id AS sid, '[' || to_char(h2.created_at, 'YYYY-MM-DD') || '] ' || CASE WHEN h2.message->>'type'='human' THEN 'КЛИЕНТ: ' ELSE 'БОТ: ' END || left(h2.message->>'content', 500) AS line FROM n8n_chat_histories h2 WHERE h2.session_id = c.bot_id||':'||c.user_id AND h2.id > c.last_id AND h2.id <= c.max_id AND h2.message->>'type' IN ('human','ai') ORDER BY h2.id DESC LIMIT 120) s) AS transcript FROM (SELECT split_part(h.session_id,':',1) AS bot_id, split_part(h.session_id,':',2)::bigint AS user_id, max(h.id) AS max_id, coalesce(max(ds.last_message_id),0) AS last_id, max(ds.summary_text) AS current_summary, count(*) FILTER (WHERE h.id > coalesce(ds.last_message_id,0)) AS new_cnt FROM n8n_chat_histories h LEFT JOIN dialog_summary ds ON ds.bot_id=split_part(h.session_id,':',1) AND ds.user_id=split_part(h.session_id,':',2)::bigint WHERE h.session_id ~ '^[^:]+:[0-9]+$' AND NOT (split_part(h.session_id,':',2)::bigint BETWEEN 999000 AND 999999) GROUP BY 1,2 HAVING max(h.id) > coalesce(max(ds.last_message_id),0) AND count(*) FILTER (WHERE h.id > coalesce(ds.last_message_id,0)) >= 8) c;",
+        "options": {}
+      },
+      "id": "s1000000-0000-4000-8000-000000000002",
+      "name": "Сессии",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -560,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "LXIg26xUOtUdy7DJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst system = 'Ты — модуль сводки диалога персонального фитнес-бота. Веди СКОЛЬЗЯЩУЮ СВОДКУ переписки с клиентом: что обсуждали и о чём договорились в последние дни. Ответь ТОЛЬКО текстом обновлённой сводки, без пояснений и markdown-заголовков. Формат: короткие строки-маркеры, каждая начинается с даты [YYYY-MM-DD]. Включай: договорённости и решения, обещания бота, незакрытые вопросы, важный контекст (командировка, самочувствие, смена планов). НЕ включай: перечисление съеденного/подходов/замеров (журналы лежат в базе), приветствия и пустую болтовню. Объедини со старой сводкой: устаревшее (старше ~7 дней) и потерявшее актуальность выкидывай. Максимум ~1200 символов.';\nconst PRG_RULE = \" ПРОГРАММА ТРЕНИРОВОК у клиента сохранена отдельно и главнее любой сводки: состав тренировочных дней, списки упражнений, сплиты, кардио и раскладки тренировок, которые выдавал бот, в сводку НЕ пиши. Если клиент изменил программу — одна строка «программу тренировок изменили: что именно».\";\nconst NOPRG_RULE = \" Сохранённой программы тренировок у клиента нет: если клиент ЯВНО согласовал программу (состав дней), зафиксируй кратко только ПОСЛЕДНЮЮ согласованную версию и прямо напиши, что прежние версии отменены. Раскладку, которую бот выдал сам без подтверждения клиента, как программу или договорённость не записывай.\";\nconst out = [];\nfor (let i = 0; i < items.length; i++) {\n  const d = items[i].json;\n  const transcript = String(d.transcript || '').trim();\n  if (!transcript) continue;\n  const cur = String(d.current_summary || '').trim() || '(сводки пока нет)';\n  const user = 'ТЕКУЩАЯ СВОДКА НИТИ:\\n' + cur + '\\n\\nНОВЫЕ СООБЩЕНИЯ (могут идти с конца, ориентируйся на даты):\\n' + transcript;\n  const body = JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 800, system: system + (d.has_program === true || d.has_program === 't' || d.has_program === 'true' ? PRG_RULE : NOPRG_RULE), messages: [{ role: 'user', content: user }] });\n  out.push({ json: { bot_id: d.bot_id, user_id: d.user_id, max_id: d.max_id, body: body }, pairedItem: { item: i } });\n}\nreturn out;"
+      },
+      "id": "s1000000-0000-4000-8000-000000000003",
+      "name": "Промпт",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}",
+        "options": {
+          "timeout": 120000,
+          "retry": {
+            "retry": {
+              "maxTries": 3,
+              "waitBetweenTries": 3000
+            }
+          }
+        }
+      },
+      "id": "s1000000-0000-4000-8000-000000000004",
+      "name": "Сводить",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -80,
+        0
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "J8w0oAhcMJCaC4PY",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\nconst inp = $input.all();\nconst prompts = $('Промпт').all();\nfor (let i = 0; i < inp.length; i++) {\n  const r = inp[i].json;\n  const p = prompts[i].json;\n  let text = '';\n  try { text = r.content[0].text; } catch (e) { text = ''; }\n  text = String(text).trim().slice(0, 2500);\n  if (!text) continue;\n  out.push({ json: { bot_id: p.bot_id, user_id: p.user_id, max_id: p.max_id, summary: text }, pairedItem: { item: i } });\n}\nreturn out;"
+      },
+      "id": "s1000000-0000-4000-8000-000000000005",
+      "name": "Разобрать",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO dialog_summary (bot_id, user_id, summary_text, last_message_id, updated_at) SELECT $1, $2, $3, $4, now() WHERE EXISTS (SELECT 1 FROM clients WHERE bot_id=$1) ON CONFLICT (bot_id, user_id) DO UPDATE SET summary_text = EXCLUDED.summary_text, last_message_id = EXCLUDED.last_message_id, updated_at = now();",
+        "options": {
+          "queryReplacement": "={{ [$json.bot_id, $json.user_id, $json.summary, $json.max_id] }}"
+        }
+      },
+      "id": "s1000000-0000-4000-8000-000000000006",
+      "name": "Сохранить",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        400,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "LXIg26xUOtUdy7DJ",
+          "name": "Postgres account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Каждые полчаса": {
+      "main": [
+        [
+          {
+            "node": "Сессии",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Сессии": {
+      "main": [
+        [
+          {
+            "node": "Промпт",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Промпт": {
+      "main": [
+        [
+          {
+            "node": "Сводить",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Сводить": {
+      "main": [
+        [
+          {
+            "node": "Разобрать",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Разобрать": {
+      "main": [
+        [
+          {
+            "node": "Сохранить",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 600,
+    "errorWorkflow": "ErrorNotify00001"
+  },
+  "staticData": {
+    "node:Каждые полчаса": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": null,
+  "versionId": "ae1b0e48-664b-4cb2-bd76-d1022ef0d634",
+  "activeVersionId": "ae1b0e48-664b-4cb2-bd76-d1022ef0d634",
+  "versionCounter": 2,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-08-12T20:04:04.379Z",
+      "createdAt": "2026-08-12T20:04:04.379Z",
+      "role": "workflow:owner",
+      "workflowId": "DialogSummary01",
+      "projectId": "aeezIZ8IOn3uHQp8",
+      "project": {
+        "updatedAt": "2026-06-27T10:22:49.126Z",
+        "createdAt": "2026-06-27T10:15:58.391Z",
+        "id": "aeezIZ8IOn3uHQp8",
+        "name": "Andrey Koldorkin <andreicros@proton.me>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "5ebf5692-854f-4f37-a2cd-09eaa9ace37e"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}
