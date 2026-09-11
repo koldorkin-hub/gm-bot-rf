@@ -38,14 +38,27 @@ const RULES = [
     what: 'показатели сердечно-сосудистой системы' },
 ];
 
+// Состав тренировочных дней в сводках (вечер 11.09.2026). Программа тренировок —
+// единственный источник состава, но «нить диалога» записала неверную раскладку, которую бот
+// сам выдал утром, а «выжимка» хранила старый цикл — и ошибка вернулась к клиенту.
+// Поэтому при наличии программы пересказ раскладки в сводку не пускается.
+const PROGRAM_RULES = [
+  { category: 'состав дней', re: rx('день\\s*\\d+|сплит[а-яё]*|раскладк[а-яё]*|програм[а-яё]*\\s+тренировок'),
+    what: 'пересказ программы тренировок — она хранится отдельно и главнее сводки' },
+  { category: 'состав дней', re: new RegExp(NB + '(?:пн|вт|ср|чт|пт|сб|вс|понедельник[а-яё]*|вторник[а-яё]*|сред[а-яё]*|четверг[а-яё]*|пятниц[а-яё]*|суббот[а-яё]*|воскресень[а-яё]*)\\s*[—:-]', 'gi'),
+    what: 'раскладка по дням недели — её источник программа, а не сводка' },
+];
+
 /**
  * @param {string} text — выжимка, предложенная моделью
+ * @param {{hasProgram?: boolean}} [opts] — есть ли у клиента действующая программа тренировок
  * @returns {{clean: boolean, hits: Array<{category, fragment, what}>, message: string}}
  */
-function checkSummary(text) {
+function checkSummary(text, opts) {
   const s = String(text == null ? '' : text);
+  const hasProgram = !!(opts && opts.hasProgram);
   const hits = [];
-  for (const rule of RULES) {
+  for (const rule of (hasProgram ? RULES.concat(PROGRAM_RULES) : RULES)) {
     rule.re.lastIndex = 0;
     for (const m of s.matchAll(rule.re)) {
       hits.push({ category: rule.category, fragment: m[0].trim(), what: rule.what });
@@ -60,8 +73,12 @@ function checkSummary(text) {
       `В выжимке есть сведения, которых там быть не должно (${categories.join(', ')}): `
       + hits.slice(0, 5).map((h) => `«${h.fragment}»`).join(', ')
       + '. Перепиши выжимку только про поведение и привычки: без диагнозов, препаратов, '
-      + 'анализов и показателей здоровья.',
+      + 'анализов и показателей здоровья'
+      + (hasProgram ? ', а состав тренировочных дней не пересказывай — он хранится в программе'
+                    + ' и меняется только через неё' : '') + '.',
   };
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { checkSummary, RULES };
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { checkSummary, RULES, PROGRAM_RULES };
+}

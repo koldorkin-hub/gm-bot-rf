@@ -71,3 +71,34 @@ test('повторный вызов даёт тот же результат — 
   assert.strictEqual(first, second);
   assert.ok(first > 0);
 });
+
+// ── Вечер 11.09.2026: сводки не спорят с программой тренировок ──
+test('без программы раскладка в сводке допустима', () => {
+  const t = 'Договорились: Пн — низ тела, Ср — верх, Сб — прогулка.';
+  assert.strictEqual(checkSummary(t).clean, true);
+  assert.strictEqual(checkSummary(t, { hasProgram: false }).clean, true);
+});
+
+test('при наличии программы пересказ состава дней в сводку не пускается', () => {
+  for (const t of ['День 1 — низ тела: румынская тяга, ягодичный мост.',
+                   'Сплит четырёхдневный, отстающие в четверг.',
+                   'Пн — зал, Ср — бассейн.',
+                   'Новая раскладка тренировок с сентября.']) {
+    const r = checkSummary(t, { hasProgram: true });
+    assert.strictEqual(r.clean, false, t);
+    assert.strictEqual(r.hits.some((h) => h.category === 'состав дней'), true, t);
+  }
+});
+
+test('поведенческая выжимка проходит и при наличии программы', () => {
+  for (const t of ['Срывается на сладкое по выходным, тренируется нерегулярно.',
+                   'Работает водителем, ест в дороге.',
+                   'Просит короткие ответы, голосовые не любит.']) {
+    assert.strictEqual(checkSummary(t, { hasProgram: true }).clean, true, t);
+  }
+});
+
+test('сообщение модели объясняет и это правило', () => {
+  const r = checkSummary('День 2 — верх тела.', { hasProgram: true });
+  assert.match(r.message, /состав тренировочных дней не пересказывай/);
+});

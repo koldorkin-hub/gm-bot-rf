@@ -93,9 +93,10 @@ const STRICT = {
       'workout:strength', 'workout:cardio']) },
     required: ['action'] },
   training_program: { props: { action: enu(['get', 'set']),
-    // days приходит строкой с JSON внутри ($fromAI умеет только строку и число),
-    // поэтому схемой проверяем формат строки, а состав — предохранителем program_days.js.
-    days: { type: 'string' } },
+    // days и cardio приходят строками с JSON внутри ($fromAI умеет только строку и число),
+    // поэтому схемой проверяем тип, а состав — предохранителем program_days.js:
+    // кардио в силовом дне отклоняется кодом, не передан cardio — прежний сохраняется.
+    days: { type: 'string' }, cardio: { type: 'string' } },
     required: ['action'] },
   lookup_food: { required: ['query'] },
   web_search: { required: ['query'] },

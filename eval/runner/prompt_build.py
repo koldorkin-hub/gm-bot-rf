@@ -56,8 +56,13 @@ def calendar_block(today: dt.date, clock: str, profile: dict) -> str:
 def profile_block(profile: dict, today: dt.date, clock: str) -> str:
     """Блок ПРОФИЛЬ КЛИЕНТА — то, что Load Profile инжектит в системник."""
     out = ["=== ПРОФИЛЬ КЛИЕНТА ===", calendar_block(today, clock, profile), ""]
+    # Если есть программа, сводки помечаются как возможно устаревшие по составу дней:
+    # именно они вернули владельцу старую раскладку обратно (вечер 11.09.2026).
+    stale = " (состав дней мог устареть — программа выше главнее)" if profile.get("training_program") else ""
     if profile.get("client_summary"):
-        out += ["ВЫЖИМКА ПО КЛИЕНТУ: " + profile["client_summary"], ""]
+        out += ["ВЫЖИМКА ПО КЛИЕНТУ" + stale + ": " + profile["client_summary"], ""]
+    if profile.get("dialog_summary"):
+        out += ["НИТЬ ДИАЛОГА" + stale + ": " + profile["dialog_summary"], ""]
 
     fields = []
     if profile.get("display_name"):
@@ -102,13 +107,26 @@ def profile_block(profile: dict, today: dt.date, clock: str) -> str:
             out.append(f"{label}: {profile[key]}")
     program = profile.get("training_program")
     if program:
+        def render_exercise(i, e):
+            # Упражнение — строка или {name, target: "4 × 8–12"}.
+            if isinstance(e, dict):
+                return f"{i + 1}) {e['name']}" + (f" — {e['target']}" if e.get("target") else "")
+            return f"{i + 1}) {e}"
+
         days = "; ".join(
             f"День {d['day']}" + (f" (обычно {d['weekday']})" if d.get("weekday") else "")
-            + f" — {d['name']}: " + ", ".join(f"{i + 1}) {e}" for i, e in enumerate(d["exercises"]))
+            + f" — {d['name']}: "
+            + ", ".join(render_exercise(i, e) for i, e in enumerate(d["exercises"]))
             for d in program["days"])
         out += ["", f"ПРОГРАММА ТРЕНИРОВОК (действующая версия {program['version']}, "
                     f"с {program['started_on']}; единственный источник состава и порядка "
                     f"упражнений): {days}"]
+        # Кардио живёт отдельным списком, не внутри силовых дней (вечер 11.09.2026).
+        cardio = program.get("cardio") or []
+        if cardio:
+            out.append("КАРДИО КЛИЕНТА (отдельно от силовых дней): " + "; ".join(
+                c["name"] + (f", {c['duration_min']} мин" if c.get("duration_min") else "")
+                + (f", {c['when']}" if c.get("when") else "") for c in cardio))
 
     consent = profile.get("health_consent_at")
     out += ["", "СОГЛАСИЕ НА ДАННЫЕ О ЗДОРОВЬЕ: "

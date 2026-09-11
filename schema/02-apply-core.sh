@@ -49,6 +49,7 @@ FILES=(
   food-liver.sql              # точечное дополнение справочника
   reminder.sql                # напоминания
   program-reminder-migration.sql  # программа тренировок с версиями + reminder.done_when (11.09.2026)
+  program-cardio-migration.sql    # кардио отдельным списком; DROP FUNCTION старой сигнатуры (вечер 11.09)
   user-access.sql             # доступ по пользователям
   fn-admin-access.sql         # админ-команды доступа
   fn-admin-list-count.sql     # полная замена функции доступа (после предыдущей)
@@ -123,6 +124,19 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                   WHERE table_name = 'reminder' AND column_name = 'done_when') THEN
     RAISE EXCEPTION 'нет колонки reminder.done_when — автопропуск сделанного не заработает';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_name = 'training_program' AND column_name = 'cardio') THEN
+    RAISE EXCEPTION 'нет колонки training_program.cardio — кардио снова окажется внутри силовых дней';
+  END IF;
+  -- У функции сменилась сигнатура: 7-й аргумент p_cardio. Старая версия рядом жить не должна.
+  IF (SELECT count(*) FROM pg_proc WHERE proname = 'set_training_program') <> 1 THEN
+    RAISE EXCEPTION 'функций set_training_program % — старая сигнатура не удалена',
+      (SELECT count(*) FROM pg_proc WHERE proname = 'set_training_program');
+  END IF;
+  IF (SELECT pronargs FROM pg_proc WHERE proname = 'set_training_program') <> 7 THEN
+    RAISE EXCEPTION 'set_training_program принимает % аргументов вместо 7 — кардио не сохранится',
+      (SELECT pronargs FROM pg_proc WHERE proname = 'set_training_program');
   END IF;
 
   SELECT count(*) INTO n_groups FROM allergen_group;

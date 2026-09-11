@@ -73,3 +73,52 @@ test('сообщение модели объясняет, что передат�
   assert.match(r.message, /ВСЕ дни программы целиком/);
   assert.ok(!/\.\./.test(r.message), 'в сообщении не должно быть двойных точек');
 });
+
+// ── Вечер 11.09.2026: кардио отдельно от силовых дней ──
+const { validateCardio, validateProgramSet } = require('../program_days.js');
+
+test('кардио внутри силового дня отклоняется с объяснением', () => {
+  const r = validateProgramDays([{ day: 1, name: 'Ноги', exercises: ['присед', 'эллипс'] }]);
+  assert.strictEqual(r.ok, false);
+  assert.match(r.message, /это кардио/);
+  assert.match(r.message, /передай его отдельно в cardio/);
+});
+
+test('упражнение может быть со схемой подходов', () => {
+  const r = validateProgramDays([{ day: 1, name: 'Ноги',
+    exercises: [{ name: 'румынская тяга', target: '4 × 8–12' }, 'ягодичный мост'] }]);
+  assert.strictEqual(r.ok, true);
+  assert.deepStrictEqual(r.days[0].exercises[0], { name: 'румынская тяга', target: '4 × 8–12' });
+  assert.strictEqual(r.days[0].exercises[1], 'ягодичный мост', 'без схемы остаётся строкой');
+});
+
+test('кардио не передано — прежнее сохраняется, а не стирается', () => {
+  for (const v of [undefined, null, '', '   ']) {
+    const r = validateProgramSet([{ day: 1, name: 'Ноги', exercises: ['присед'] }], v);
+    assert.strictEqual(r.ok, true, String(v));
+    assert.strictEqual(r.cardio, null);
+    assert.strictEqual(r.keepPreviousCardio, true);
+  }
+});
+
+test('пустой массив кардио — осознанное «убрать», это не то же самое', () => {
+  const r = validateProgramSet([{ day: 1, name: 'Ноги', exercises: ['присед'] }], '[]');
+  assert.deepStrictEqual(r.cardio, []);
+  assert.strictEqual(r.keepPreviousCardio, false);
+});
+
+test('кардио нормализуется, длительность проверяется', () => {
+  const r = validateCardio([{ name: 'эллипс', duration_min: '40.4', when: 'после силовой' },
+                            'ходьба']);
+  assert.strictEqual(r.ok, true);
+  assert.deepStrictEqual(r.cardio[0], { name: 'эллипс', duration_min: 40, when: 'после силовой' });
+  assert.deepStrictEqual(r.cardio[1], { name: 'ходьба' });
+  assert.strictEqual(validateCardio([{ name: 'бег', duration_min: 0 }]).ok, false);
+  assert.strictEqual(validateCardio([{ name: 'бег', duration_min: 900 }]).ok, false);
+  assert.strictEqual(validateCardio([{ name: '  ' }]).ok, false);
+});
+
+test('слишком длинный список кардио отклоняется', () => {
+  const many = Array.from({ length: 11 }, (_, i) => ({ name: 'вид ' + i }));
+  assert.match(validateCardio(many).message, /не больше 10/);
+});
