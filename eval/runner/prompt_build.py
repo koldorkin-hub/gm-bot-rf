@@ -100,6 +100,16 @@ def profile_block(profile: dict, today: dt.date, clock: str) -> str:
                        ("plan_week", "ПЛАН НА НЕДЕЛЮ")):
         if profile.get(key):
             out.append(f"{label}: {profile[key]}")
+    program = profile.get("training_program")
+    if program:
+        days = "; ".join(
+            f"День {d['day']}" + (f" (обычно {d['weekday']})" if d.get("weekday") else "")
+            + f" — {d['name']}: " + ", ".join(f"{i + 1}) {e}" for i, e in enumerate(d["exercises"]))
+            for d in program["days"])
+        out += ["", f"ПРОГРАММА ТРЕНИРОВОК (действующая версия {program['version']}, "
+                    f"с {program['started_on']}; единственный источник состава и порядка "
+                    f"упражнений): {days}"]
+
     consent = profile.get("health_consent_at")
     out += ["", "СОГЛАСИЕ НА ДАННЫЕ О ЗДОРОВЬЕ: "
             + (f"получено {consent}, карту здоровья вести можно" if consent

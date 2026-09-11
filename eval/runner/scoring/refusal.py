@@ -45,6 +45,7 @@ def verdict(scenario: dict, result, judged: dict, today: dt.date) -> dict:
     return {
         "scenario": scenario["id"],
         "category": scenario["id"][0],
+        "critical": bool(scenario.get("critical")),
         "repeat": result.repeat,
         "passed": not problems,
         "problems": problems,

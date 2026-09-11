@@ -48,6 +48,7 @@ FILES=(
   food-reference-expand.sql   # расширение справочника
   food-liver.sql              # точечное дополнение справочника
   reminder.sql                # напоминания
+  program-reminder-migration.sql  # программа тренировок с версиями + reminder.done_when (11.09.2026)
   user-access.sql             # доступ по пользователям
   fn-admin-access.sql         # админ-команды доступа
   fn-admin-list-count.sql     # полная замена функции доступа (после предыдущей)
@@ -87,7 +88,8 @@ DECLARE
                        'extraction_state','chat_history_archive','activity_library','freshness_policy',
                        'activity_met','allergen_group','food_allergen','food_reference','reminder',
                        'user_access','websearch_budget','photo_batch','photo_batch_item',
-                       'diag_state','ops_error','ops_alert','dm_state','dialog_summary'];
+                       'diag_state','ops_error','ops_alert','dm_state','dialog_summary',
+                       'training_program'];
   missing text;
   wrong_owner text;
   n_groups int;
@@ -109,6 +111,18 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'fn_admin_access') THEN
     RAISE EXCEPTION 'нет функции fn_admin_access — админ-команды доступа не заработают';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'set_training_program') THEN
+    RAISE EXCEPTION 'нет функции set_training_program — смена версии программы не заработает';
+  END IF;
+  -- Действующая версия программы ровно одна: это держит частичный уникальный индекс, а не промпт.
+  IF NOT EXISTS (SELECT 1 FROM pg_indexes
+                  WHERE schemaname = 'public' AND indexname = 'training_program_one_active') THEN
+    RAISE EXCEPTION 'нет индекса training_program_one_active — двух действующих программ ничто не остановит';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_name = 'reminder' AND column_name = 'done_when') THEN
+    RAISE EXCEPTION 'нет колонки reminder.done_when — автопропуск сделанного не заработает';
   END IF;
 
   SELECT count(*) INTO n_groups FROM allergen_group;

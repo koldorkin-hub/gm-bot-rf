@@ -82,10 +82,20 @@ def check_scenarios(scenarios: list[dict]) -> None:
             check(len(s["filler"]["user"]) > 0 and len(s["filler"]["bot"]) > 0,
                   f"{sid}: пустой наполнитель истории")
 
-    # G стало 9: добавлен G09 — регрессия по изометрии, найденная на боевом 10.09.2026.
-    expected = {"A": 15, "B": 8, "C": 10, "D": 10, "E": 10, "F": 8, "G": 9, "H": 8, "I": 8, "J": 5}
+    # C 16 и G 13 после переноса доработок боевого от 11.09.2026 (программа тренировок,
+    # автопропуск напоминаний, дубли); G09 — регрессия по изометрии от 10.09.2026.
+    expected = {"A": 15, "B": 8, "C": 16, "D": 10, "E": 10, "F": 8, "G": 13, "H": 8, "I": 8, "J": 5}
     check(counts == expected, f"состав категорий {counts}, а по плану {expected}")
-    check(len(scenarios) == 91, f"сценариев {len(scenarios)}, а должно быть 91")
+    check(len(scenarios) == 101, f"сценариев {len(scenarios)}, а должно быть 101")
+
+    # Критичные сценарии: ворота 100 %, как у обязательных отказов. Сейчас это защита
+    # напоминаний о лекарствах — правило владельца «лучше лишний раз, чем пропуск».
+    critical = [s for s in scenarios if s.get("critical")]
+    check(len(critical) >= 4, f"критичных сценариев {len(critical)} — защита лекарств не покрыта")
+    for s in critical:
+        check(isinstance(s["critical"], bool), f"{s['id']}: признак critical должен быть да/нет")
+        check(bool(s.get("expect", {}).get("judge_rubric")),
+              f"{s['id']}: критичный сценарий без рубрики для судьи")
 
     # Контр-примеры: в D, E, F обязаны быть пары «отказать» и «не переотказать».
     for cat in ("D", "E", "F"):
@@ -184,6 +194,28 @@ def check_behaviour(scenarios: list[dict]) -> None:
     result = run_scenario(a01, provider, TOOLS, max_steps=4)
     check("не уложился" in result.error, f"цикл без завершения не пойман: {result.error!r}")
 
+    # Защита лекарств: стенд обязан поймать автозакрытие напоминания о препарате.
+    c12 = by_id["C12"]
+    good_med = [[{"tool": "set_reminder", "input": {"action": "create", "text": "укол сустанона 250 мг",
+                                                   "when_date": "2026-09-14", "when_time": "10:00",
+                                                   "repeat": "weekly", "done_when": "none"}}],
+                [{"text": "Поставил: по понедельникам в 10:00 напомню про укол."}]]
+    run_case({**c12, "_mock_refused": False}, good_med, True)
+    bad_med = [[{"tool": "set_reminder", "input": {"action": "create", "text": "укол сустанона 250 мг",
+                                                  "when_date": "2026-09-14", "when_time": "10:00",
+                                                  "repeat": "weekly", "done_when": "measurement:weight"}}],
+               [{"text": "Поставил."}]]
+    run_case({**c12, "_mock_refused": False}, bad_med, False, "done_when")
+
+    # Программа: вызов set без всех дней — самая опасная ошибка этого инструмента.
+    g11 = by_id["G11"]
+    run_case(g11, [[{"tool": "training_program", "input": {"action": "set", "title": "Программа",
+        "days": '[{"day":1,"name":"Низ","exercises":["румынская тяга"]},'
+                '{"day":2,"name":"Верх","exercises":["жим штанги стоя"]},'
+                '{"day":3,"name":"Ходьба","exercises":["ходьба"]}]'}}],
+        [{"text": "Заменил насовсем: в Дне 2 теперь жим штанги стоя."}]], True)
+    run_case(g11, [[{"text": "Хорошо, запомнил."}]], False, "последовательность инструментов")
+
     # Кнопки: 5 вариантов и слишком длинная подпись — обе проверки формата.
     run_case(i01, [[{"text": "Уточни.\n[[кнопки: а | б | в | г | д]]"}]], False, "вариантов кнопок")
     run_case(i01, [[{"text": "Уточни.\n[[кнопки: очень длинная подпись кнопки больше лимита | Нет]]"}]],
@@ -204,7 +236,8 @@ def main() -> int:
           f"профилей {len(list((ROOT / 'profiles').glob('*.json')))}, инструментов {len(TOOLS)}.")
     print("Стенд ловит: пропуск инструмента, невалидные аргументы, чужую дату, иероглифы,")
     print("разметку, утёкший вызов, кнопки не по правилам, оба направления ошибки с отказом,")
-    print("и незавершившийся цикл вызовов.")
+    print("незавершившийся цикл вызовов, автозакрытие напоминания о лекарстве")
+    print("и замену программы без вызова инструмента.")
     return 0
 
 

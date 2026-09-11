@@ -71,3 +71,13 @@ test('пояс без профиля — Москва по умолчанию', 
 test('битый момент времени валит явно, а не тихо', () => {
   assert.throws(() => clientNow('не дата', 'Europe/Moscow'), /не разобрать момент/);
 });
+
+test('дата версии программы не влияет на счёт недель плана', () => {
+  // plan_started_on — старт плана, training_program.started_on — дата версии программы.
+  // Завели новую версию программы сегодня — неделя плана обязана остаться прежней.
+  const profile = { timezone: 'Europe/Moscow', plan_started_on: '2026-08-10',
+    training_program: { version: 2, started_on: '2026-09-10' } };
+  const c = buildCalendar('2026-09-10T05:15:00Z', profile);
+  assert.strictEqual(c.programDay, 32, 'счёт идёт от plan_started_on, а не от версии программы');
+  assert.strictEqual(c.programWeek, 5);
+});

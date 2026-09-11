@@ -28,7 +28,8 @@ const fail = (m) => { console.error('ОШИБКА: ' + m); process.exit(1); };
 const raw = JSON.parse(fs.readFileSync(EXPORT, 'utf8'));
 const wf = Array.isArray(raw) ? raw[0] : raw;
 const nodes = wf.nodes.filter((n) => String(n.type || '').includes('toolWorkflow'));
-if (nodes.length !== 20) fail('в выгрузке ' + nodes.length + ' инструментов вместо 20');
+// 11.09.2026 добавлен training_program — инструментов стало 21.
+if (nodes.length !== 21) fail('в выгрузке ' + nodes.length + ' инструментов вместо 21');
 
 // ---- Ужесточение: перечисления, форматы, обязательность и структура вложенных аргументов ----
 const DATE = { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$' };
@@ -81,7 +82,21 @@ const STRICT = {
     'delete_measurement', 'delete_workout_session']), date: DATE, fields: { type: 'object' } },
     required: ['action'] },
   set_reminder: { props: { action: enu(['create', 'list', 'cancel']),
-    when_date: DATE, when_time: TIME, repeat: enu(['daily', 'weekly']) }, required: ['action'] },
+    when_date: DATE, when_time: TIME, repeat: enu(['daily', 'weekly']),
+    // Чем напоминание закрывается само (11.09.2026). Белый список тот же, что в
+    // backstops/done_when.js — там же принудительный none для лекарств.
+    // body_fat_pct в РФ-версии исключён: он уходит в контур здоровья, а тикер смотрит
+    // открытую measurement (обоснование — в backstops/done_when.js).
+    done_when: enu(['none',
+      'measurement:weight', 'measurement:waist', 'measurement:hip',
+      'food:breakfast', 'food:lunch', 'food:dinner', 'food:snack',
+      'workout:strength', 'workout:cardio']) },
+    required: ['action'] },
+  training_program: { props: { action: enu(['get', 'set']),
+    // days приходит строкой с JSON внутри ($fromAI умеет только строку и число),
+    // поэтому схемой проверяем формат строки, а состав — предохранителем program_days.js.
+    days: { type: 'string' } },
+    required: ['action'] },
   lookup_food: { required: ['query'] },
   web_search: { required: ['query'] },
   find_recipes: {},
@@ -122,11 +137,11 @@ fs.writeFileSync(OUT, JSON.stringify(tools, null, 2) + '\n', 'utf8');
 
 // ---- Проверка фактом ----
 const back = JSON.parse(fs.readFileSync(OUT, 'utf8'));
-if (back.length !== 20) fail('в tools.json ' + back.length + ' инструментов вместо 20');
+if (back.length !== 21) fail('в tools.json ' + back.length + ' инструментов вместо 21');
 const names = new Set(back.map((t) => t.name));
 for (const must of ['lookup_food', 'log_food', 'log_workout', 'log_measurement', 'get_progress',
   'calculate', 'save_health', 'add_exclusion', 'check_activities', 'check_recipe_allergens',
-  'set_reminder', 'correct_log', 'web_search', 'get_progress_chart']) {
+  'set_reminder', 'correct_log', 'web_search', 'get_progress_chart', 'training_program']) {
   if (!names.has(must)) fail('в эталоне не нашёлся инструмент ' + must);
 }
 for (const key of Object.keys(STRICT)) {

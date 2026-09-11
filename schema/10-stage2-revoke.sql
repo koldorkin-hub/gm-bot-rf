@@ -36,7 +36,8 @@ INSERT INTO pd_tables (table_name, reason) VALUES
   ('chat_history_archive','переписка'),
   ('n8n_chat_histories',  'переписка'),
   ('clients',             'идентификаторы и настройки клиентов'),
-  ('user_access',         'идентификаторы пользователей')
+  ('user_access',         'идентификаторы пользователей'),
+  ('reminder',            'текст напоминания может содержать сведения о здоровье: препараты, дозы, процедуры')
 ON CONFLICT (table_name) DO UPDATE SET reason = EXCLUDED.reason;
 
 -- ── Контур здоровья целиком: сначала он, он же самый дорогой ──

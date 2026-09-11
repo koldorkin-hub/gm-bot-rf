@@ -289,7 +289,7 @@
   },
   {
     "name": "log_workout",
-    "description": "Записывает проведённую активность. entries — JSON-массив: силовое {activity, kind:\"strength\", sets:[{reps, weight_kg, rpe}]}; кардио {activity, kind:\"cardio\", duration_s (обязательно), distance_m, hr_avg (если клиент назвал пульс — точнее расход)}; шаги {activity:\"Шаги\", kind:\"cardio\", steps}. activity — движение, не тренажёр. Расход ккал считает система — своих цифр не передавай. performed_on — YYYY-MM-DD или пусто (сегодня клиента); duration_min — общая длительность (по ней расход силовой части); session_type strength|cardio|mixed|sport; note.",
+    "description": "Записывает проведённую активность. entries — JSON-массив: силовое {activity, kind:\"strength\", sets:[{reps, weight_kg, rpe, duration_s}]} — в изометрии (планка, вис, стойка, уголок, стульчик у стены) подход задаётся ВРЕМЕНЕМ: duration_s на каждый подход, reps не выдумывать; кардио {activity, kind:\"cardio\", duration_s (обязательно), distance_m, hr_avg (если клиент назвал пульс — точнее расход)}; шаги {activity:\"Шаги\", kind:\"cardio\", steps}. activity — движение, не тренажёр. Расход ккал считает система — своих цифр не передавай. performed_on — YYYY-MM-DD или пусто (сегодня клиента); duration_min — общая длительность (по ней расход силовой части); session_type strength|cardio|mixed|sport; note.",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -630,7 +630,7 @@
   },
   {
     "name": "set_reminder",
-    "description": "Напоминания клиенту — бот умеет напоминать сам. action=create: text + либо when_date (ГГГГ-ММ-ДД из справки) и when_time (ЧЧ:ММ клиента), либо in_minutes; repeat daily|weekly для регулярных. action=list — активные с номерами. action=cancel + id. Придёт само в назначенное время.",
+    "description": "Напоминания клиенту — бот умеет напоминать сам. action=create: text + либо when_date (ГГГГ-ММ-ДД из справки) и when_time (ЧЧ:ММ клиента), либо in_minutes; repeat daily|weekly для регулярных. done_when — чем напоминание закрывается само, если клиент заранее сделал дело в тот же день: measurement:weight|waist|hip|body_fat_pct (записан замер), food:breakfast|lunch|dinner|snack (записан приём пищи), workout:strength|cardio (записана тренировка ТОГО ЖЕ вида). Ставь связь только если напоминание именно о том, чтобы сделать или записать это действие. Лекарства, уколы, препараты, добавки, любые медицинские напоминания — ВСЕГДА none. Сомневаешься — none. Меняешь график целиком (обновился план, курс) — сначала action=list и отмени устаревшие, потом ставь новые. Если в ответе сказано, что на это время уже стоят напоминания, а новое их заменяет, — отмени старые action=cancel. action=list — активные с номерами. action=cancel + id. Придёт само в назначенное время.",
     "input_schema": {
       "type": "object",
       "properties": {
@@ -672,6 +672,22 @@
         "id": {
           "type": "number",
           "description": "номер напоминания для отмены"
+        },
+        "done_when": {
+          "type": "string",
+          "enum": [
+            "none",
+            "measurement:weight",
+            "measurement:waist",
+            "measurement:hip",
+            "food:breakfast",
+            "food:lunch",
+            "food:dinner",
+            "food:snack",
+            "workout:strength",
+            "workout:cardio"
+          ],
+          "description": "чем закрывается само: measurement:weight, measurement:waist, measurement:hip, measurement:body_fat_pct, food:breakfast, food:lunch, food:dinner, food:snack, workout:strength, workout:cardio или none; лекарства всегда none"
         }
       },
       "required": [
@@ -693,6 +709,39 @@
       },
       "required": [
         "period_days"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "training_program",
+    "description": "Программа тренировок клиента — ЕДИНСТВЕННЫЙ источник состава и порядка упражнений каждого дня. Действующая программа уже показана в профиле строкой ПРОГРАММА ТРЕНИРОВОК. action=get — прочитать действующую целиком. action=set — завести НОВУЮ версию: title, days (JSON-массив ВСЕХ дней программы, не только изменённого; у дня поля day, name, weekday, exercises — названия упражнений по порядку выполнения) и note (что изменилось). Прежняя версия снимается автоматически, двух действующих не бывает. Вызывай set, когда клиент меняет программу НАСОВСЕМ: новый сплит, заменить, добавить или убрать упражнение, новый постоянный порядок. НЕ вызывай set при разовой перестановке в зале (тренажёр занят, сегодня вместо) — это просто запись в журнал. Перед set сделай get, чтобы не потерять дни. Названия упражнений бери как в журнале, иначе прошлые результаты не найдутся.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "get",
+            "set"
+          ],
+          "description": "get или set"
+        },
+        "title": {
+          "type": "string",
+          "description": "для set: короткое название программы"
+        },
+        "days": {
+          "type": "string",
+          "description": "для set: JSON-массив ВСЕХ дней программы, у дня поля day, name, weekday, exercises по порядку"
+        },
+        "note": {
+          "type": "string",
+          "description": "для set: что изменилось и почему"
+        }
+      },
+      "required": [
+        "action"
       ],
       "additionalProperties": false
     }
