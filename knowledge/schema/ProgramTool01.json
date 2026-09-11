@@ -1,0 +1,180 @@
+{
+  "updatedAt": "2026-09-11T11:25:35.000Z",
+  "createdAt": "2026-09-11T11:25:32.112Z",
+  "id": "ProgramTool01",
+  "name": "Инструмент — Программа тренировок",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "bot_id",
+              "type": "string"
+            },
+            {
+              "name": "user_id",
+              "type": "number"
+            },
+            {
+              "name": "tz",
+              "type": "string"
+            },
+            {
+              "name": "action",
+              "type": "string"
+            },
+            {
+              "name": "title",
+              "type": "string"
+            },
+            {
+              "name": "days",
+              "type": "string"
+            },
+            {
+              "name": "note",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "pg000000-0000-4000-8000-000000000001",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst action = String(d.action || 'get').trim().toLowerCase();\nconst bot = d.bot_id, uid = Number(d.user_id);\nconst tz = String(d.tz || '').trim() || 'Europe/Moscow';\n\nif (action === 'get') {\n  return [{ json: { action,\n    query: \"SELECT version, title, days, started_on::text AS started_on, note FROM training_program WHERE bot_id=$1 AND user_id=$2 AND status='active'\",\n    params: [bot, uid] } }];\n}\nif (action !== 'set') throw new Error('action: get (прочитать действующую) или set (новая версия)');\n\nlet days = d.days;\nif (typeof days === 'string') {\n  try { days = JSON.parse(days); } catch (e) { throw new Error('days — не JSON. Нужен JSON-массив ВСЕХ дней программы.'); }\n}\nif (!Array.isArray(days) || !days.length) throw new Error('days — нужен непустой JSON-массив ВСЕХ дней программы, не только изменённого');\n\nconst seen = new Set();\nconst clean = days.map((x, i) => {\n  if (!x || typeof x !== 'object') throw new Error('элемент ' + (i + 1) + ': не объект дня');\n  const day = Number(x.day);\n  if (!Number.isInteger(day) || day < 1 || day > 14) throw new Error('элемент ' + (i + 1) + ': day — целое число от 1 до 14');\n  if (seen.has(day)) throw new Error('день ' + day + ' указан дважды');\n  seen.add(day);\n  const name = String(x.name || '').trim();\n  if (!name) throw new Error('день ' + day + ': нет названия (name)');\n  const ex = Array.isArray(x.exercises) ? x.exercises.map((e) => String(e || '').trim()).filter(Boolean) : [];\n  if (!ex.length) throw new Error('день ' + day + ': пустой список упражнений (exercises)');\n  const out = { day, name, exercises: ex };\n  const wd = String(x.weekday || '').trim();\n  if (wd) out.weekday = wd;\n  return out;\n}).sort((a, b) => a.day - b.day);\nclean.forEach((x, i) => { if (x.day !== i + 1) throw new Error('дни должны идти подряд с 1 — пропущен день ' + (i + 1)); });\n\nconst title = String(d.title || '').trim() || 'Программа тренировок';\nconst note = String(d.note || '').trim() || null;\nreturn [{ json: { action,\n  query: 'SELECT new_version, started_on::text AS started_on, old_version, old_days, new_days FROM set_training_program($1, $2, $3, $4, $5::jsonb, $6)',\n  params: [bot, uid, tz, title, JSON.stringify(clean), note] } }];"
+      },
+      "id": "pg000000-0000-4000-8000-000000000002",
+      "name": "Параметры",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.query }}",
+        "options": {
+          "queryReplacement": "={{ $json.params }}"
+        }
+      },
+      "id": "pg000000-0000-4000-8000-000000000003",
+      "name": "Данные",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -160,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "LXIg26xUOtUdy7DJ",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const P = $('Параметры').first().json;\nconst rows = $input.all().map((i) => i.json).filter((r) => r && (r.version || r.new_version));\nconst asArr = (v) => {\n  if (Array.isArray(v)) return v;\n  if (typeof v === 'string') { try { const x = JSON.parse(v); return Array.isArray(x) ? x : []; } catch (e) { return []; } }\n  return [];\n};\nconst render = (days) => asArr(days).map((dd) => 'День ' + dd.day + (dd.weekday ? ' (' + dd.weekday + ')' : '') + ' — ' + dd.name + ': ' +\n  (dd.exercises || []).map((x, i) => (i + 1) + ') ' + x).join(', ')).join('\\n');\n\nif (P.action === 'get') {\n  if (!rows.length) return [{ json: { response: 'Действующей программы тренировок нет. Когда согласуете программу с клиентом — сохрани её action=set.' } }];\n  const r = rows[0];\n  return [{ json: { response: 'Действующая программа, версия ' + r.version + ' (с ' + r.started_on + '): ' + r.title + '\\n' +\n    render(r.days) + (r.note ? '\\nЗаметка: ' + r.note : '') } }];\n}\n\nif (!rows.length) return [{ json: { response: 'Не удалось сохранить программу.' } }];\nconst r = rows[0];\nconst oldD = asArr(r.old_days), newD = asArr(r.new_days);\nconst byDay = (arr) => { const m = {}; arr.forEach((x) => { m[x.day] = x; }); return m; };\nconst o = byDay(oldD), n = byDay(newD);\nconst allDays = Array.from(new Set(Object.keys(o).concat(Object.keys(n)).map(Number))).sort((a, b) => a - b);\nconst diff = [];\nfor (const k of allDays) {\n  const a = o[k], b = n[k];\n  if (!a) { diff.push('День ' + k + ' — новый: ' + b.name); continue; }\n  if (!b) { diff.push('День ' + k + ' — УБРАН (был: ' + a.name + ')'); continue; }\n  const ae = a.exercises || [], be = b.exercises || [];\n  const added = be.filter((x) => ae.indexOf(x) === -1), removed = ae.filter((x) => be.indexOf(x) === -1);\n  const orderChanged = !added.length && !removed.length && ae.join('|') !== be.join('|');\n  const parts = [];\n  if (a.name !== b.name) parts.push('название «' + a.name + '» → «' + b.name + '»');\n  if (added.length) parts.push('добавлено: ' + added.join(', '));\n  if (removed.length) parts.push('убрано: ' + removed.join(', '));\n  if (orderChanged) parts.push('изменён порядок');\n  if (parts.length) diff.push('День ' + k + ': ' + parts.join('; '));\n}\nlet resp = r.old_version\n  ? 'Программа обновлена: версия ' + r.old_version + ' снята, действует версия ' + r.new_version + ' (с ' + r.started_on + ').'\n  : 'Программа сохранена: версия ' + r.new_version + ' (с ' + r.started_on + ').';\nif (diff.length) resp += '\\nИзменения:\\n' + diff.join('\\n');\nelse if (r.old_version) resp += '\\nСостав не изменился.';\nif (r.old_version && newD.length < oldD.length) {\n  resp += '\\nВНИМАНИЕ: в новой версии дней меньше, чем было (' + newD.length + ' вместо ' + oldD.length +\n    '). Если клиент этого не просил — дни потеряны при передаче: восстанови их новым set с полным составом.';\n}\nresp += '\\nСкажи клиенту коротко, что изменилось в программе.';\nreturn [{ json: { response: resp } }];"
+      },
+      "id": "pg000000-0000-4000-8000-000000000004",
+      "name": "Ответ агенту",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Параметры",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Параметры": {
+      "main": [
+        [
+          {
+            "node": "Данные",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Данные": {
+      "main": [
+        [
+          {
+            "node": "Ответ агенту",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "ErrorNotify00001",
+    "executionTimeout": 120
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "2f5ed78f-5c16-422d-ac5f-9855c559c5df",
+  "activeVersionId": "2f5ed78f-5c16-422d-ac5f-9855c559c5df",
+  "versionCounter": 1,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-09-11T11:25:32.116Z",
+      "createdAt": "2026-09-11T11:25:32.116Z",
+      "role": "workflow:owner",
+      "workflowId": "ProgramTool01",
+      "projectId": "aeezIZ8IOn3uHQp8",
+      "project": {
+        "updatedAt": "2026-06-27T10:22:49.126Z",
+        "createdAt": "2026-06-27T10:15:58.391Z",
+        "id": "aeezIZ8IOn3uHQp8",
+        "name": "Andrey Koldorkin <andreicros@proton.me>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "5ebf5692-854f-4f37-a2cd-09eaa9ace37e"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
+  }
+}

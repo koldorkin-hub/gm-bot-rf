@@ -5,7 +5,7 @@ metadata:
   node_type: memory
   type: reference
   originSessionId: 52640038-09b4-432e-9afb-c8158670a305
-  modified: 2026-08-03T16:03:28.799Z
+  modified: 2026-09-11T11:31:48.605Z
 ---
 
 База `n8n_memory` на боевом сервере, роль приложения `n8n_user` (см. [[ai-trainer-infra]]).
@@ -21,5 +21,15 @@ metadata:
 **5. `psql -f /root/файл.sql` от postgres даёт `Permission denied`.** Роль `postgres` (и её `su - postgres`) не может обойти права каталога `/root` (`drwx------`), поэтому применить SQL-файл, лежащий в `/root`, напрямую нельзя — psql рапортует `Permission denied` на самом файле, не на SQL. Лечение без копий по диску: подать через stdin — `cat /root/x.sql | su - postgres -c "psql -d n8n_memory -v ON_ERROR_STOP=1 -f -"` (cat читает от root, psql от postgres). `ON_ERROR_STOP=1` обязателен, иначе psql глотает ошибки и рапортует успех. Идемпотентный DDL-файл (`CREATE TABLE IF NOT EXISTS` + `ALTER TABLE OWNER TO n8n_user` + `INSERT ... ON CONFLICT DO NOTHING`) можно гонять повторно — проверено на схеме блока памяти.
 
 **6. НЕ биндить Postgres на docker-gateway IP (`listen_addresses`) — ломается при ребуте.** Соблазн по defense-in-depth: сузить `listen_addresses` с `*` на `127.0.0.1,172.18.0.1` (шлюз сети `n8n_default`, через него бот из контейнера ходит в БД). Работает до первой перезагрузки: **при загрузке Postgres стартует РАНЬШЕ, чем docker создаёт бридж `n8n_default`**, адреса `172.18.0.1` ещё нет → PG биндит только `127.0.0.1`, а бот (`172.18.0.2 → 172.18.0.1:5432`) теряет БД (n8n health=200, но Load Config и все запросы падают). Симптом после ребута: `ss -tlnp | grep 5432` показывает только `127.0.0.1`. Правильно: `listen_addresses='*'` (устойчиво к порядку загрузки), а защиту 5432 держать на **ufw (ALLOW только из `172.18.0.0/16`) + pg_hba (та же подсеть) + scram-пароли** — это и есть реальный слой, бинд на все интерфейсы за фаерволом безопасен. pg_hba сузить до `172.18.0.0/16` можно и нужно (переживает ребут, от адресов не зависит). Проверено 03.08.2026 (P2-харденинг). Смежное: [[ai-trainer-infra]] (периметр), [[data-encryption-posture]].
+
+**5-bis. Тот же отказ под `sudo -u postgres psql -f /root/…` выглядит как `No such file or directory`** (не Permission denied) — не искать опечатку в пути, подавать `-f - < файл`.
+
+**7. `client_profile.goal_targets` — JSONB, не text** (у владельца там jsonb-строка). `goal_targets ~ '…'` падает «operator does not exist: jsonb ~ unknown». Читать `goal_targets #>> '{}'`, писать `to_jsonb('…'::text)`, в условии `jsonb_typeof(goal_targets)='string'`. Прежде чем править поле профиля — смотреть тип в information_schema. Остальные текстовые поля плана (`active_plan`, `plan_week`) — text.
+
+**8. Изменяющие CTE (`WITH a AS (UPDATE…), b AS (INSERT…)`) выполняются в неопределённом порядке и видят один снимок.** «Снять старую версию и вставить новую» одним запросом нарушает частичный уникальный индекс непредсказуемо. Такое — функцией plpgsql (`#variable_conflict use_column`, владелец n8n_user), см. [[training-program]]. Цепочка «UPDATE skipped → INSERT следующий повтор → SELECT … NOT IN skipped» в тикере работает, потому что шаги не конфликтуют по ключам.
+
+**9. На `source` стоят CHECK:** `measurement.source` ∈ (client, extracted, device); `workout_session.source`, `food_log.source` ∈ (client, extracted). Тестовые фикстуры с `'test'` база отвергает — брать значение из существующих строк. На `reminder.status` ограничения нет (`skipped_done` добавлен без миграции).
+
+**10. Проверочные SELECT по `clients` — никогда `*` и никогда `bot_token`/`webhook_secret` в выводе.** 11.09.2026 в диагностике тикера утёк токен бота users в вывод. Перечислять колонки явно.
 
 Смежные грабли: [[n8n-alerting-gotchas]], [[n8n-deploy-gotchas]], [[n8n-dataflow-gotchas]].

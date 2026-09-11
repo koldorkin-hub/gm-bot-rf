@@ -1,151 +1,191 @@
-[
-  {
-    "id": "ReminderTick01",
-    "name": "Напоминания — отправка по расписанию",
-    "active": true,
-    "nodes": [
-      {
-        "parameters": {
-          "rule": {
-            "interval": [
-              {
-                "field": "cronExpression",
-                "expression": "*/5 * * * *"
-              }
-            ]
-          }
-        },
-        "id": "rt000000-0000-4000-8000-000000000001",
-        "name": "Каждые 5 минут",
-        "type": "n8n-nodes-base.scheduleTrigger",
-        "typeVersion": 1.2,
-        "position": [
-          -600,
-          0
-        ]
+{
+  "updatedAt": "2026-09-11T11:25:49.000Z",
+  "createdAt": "2026-08-20T16:47:35.235Z",
+  "id": "ReminderTick01",
+  "name": "Напоминания — отправка по расписанию",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/5 * * * *"
+            }
+          ]
+        }
       },
-      {
-        "parameters": {
-          "operation": "executeQuery",
-          "query": "SELECT r.id, r.bot_id, r.user_id, COALESCE(r.chat_id, r.user_id) AS chat_id, r.text,\n       r.repeat_rule, c.bot_token\n  FROM reminder r JOIN clients c ON c.bot_id = r.bot_id\n WHERE r.status = 'pending' AND r.fire_at <= now()\n ORDER BY r.fire_at\n LIMIT 50;",
-          "options": {}
+      "id": "rt000000-0000-4000-8000-000000000001",
+      "name": "Каждые 5 минут",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Сначала закрываем напоминания, дело по которым клиент уже сделал сам в тот же день.\n-- Лекарства сюда не попадают: для них done_when всегда 'none'.\nWITH due AS (\n  SELECT r.id, r.bot_id, r.user_id, r.done_when,\n         (r.fire_at AT TIME ZONE COALESCE(NULLIF(cp.timezone, ''), 'Europe/Moscow'))::date AS target_day\n    FROM reminder r\n    LEFT JOIN client_profile cp ON cp.bot_id = r.bot_id AND cp.user_id = r.user_id\n   WHERE r.status = 'pending' AND r.fire_at <= now() AND r.done_when <> 'none'\n),\ndone AS (\n  SELECT d.id FROM due d\n   WHERE (d.done_when LIKE 'measurement:%' AND EXISTS (\n            SELECT 1 FROM measurement m\n             WHERE m.bot_id = d.bot_id AND m.user_id = d.user_id AND m.measured_on = d.target_day\n               AND lower(m.metric) = ANY (CASE split_part(d.done_when, ':', 2)\n                     WHEN 'weight'       THEN ARRAY['weight', 'вес']\n                     WHEN 'waist'        THEN ARRAY['waist', 'талия']\n                     WHEN 'hip'          THEN ARRAY['hip', 'бёдра', 'бедра']\n                     WHEN 'body_fat_pct' THEN ARRAY['body_fat_pct', 'body_fat', 'жир']\n                     ELSE ARRAY[split_part(d.done_when, ':', 2)] END)))\n      OR (d.done_when LIKE 'food:%' AND EXISTS (\n            SELECT 1 FROM food_log f\n             WHERE f.bot_id = d.bot_id AND f.user_id = d.user_id AND f.eaten_on = d.target_day\n               AND f.meal_type = split_part(d.done_when, ':', 2)))\n      OR (d.done_when LIKE 'workout:%' AND EXISTS (\n            SELECT 1 FROM workout_session w\n             WHERE w.bot_id = d.bot_id AND w.user_id = d.user_id AND w.performed_on = d.target_day\n               AND w.session_type = split_part(d.done_when, ':', 2)))\n),\nskipped AS (\n  UPDATE reminder r SET status = 'skipped_done', sent_at = now()\n    FROM done WHERE r.id = done.id AND r.status = 'pending'\n  RETURNING r.id, r.bot_id, r.user_id, r.chat_id, r.fire_at, r.text, r.repeat_rule, r.done_when\n),\n-- Пропуск не обрывает серию: следующий повтор ставим так же, как после отправки.\nnxt AS (\n  INSERT INTO reminder (bot_id, user_id, chat_id, fire_at, text, repeat_rule, done_when)\n  SELECT bot_id, user_id, chat_id,\n         CASE repeat_rule WHEN 'daily' THEN fire_at + interval '1 day' ELSE fire_at + interval '7 days' END,\n         text, repeat_rule, done_when\n    FROM skipped WHERE repeat_rule IN ('daily', 'weekly')\n)\nSELECT r.id, r.bot_id, r.user_id, COALESCE(r.chat_id, r.user_id) AS chat_id, r.text,\n       r.repeat_rule, c.bot_token\n  FROM reminder r JOIN clients c ON c.bot_id = r.bot_id\n WHERE r.status = 'pending' AND r.fire_at <= now()\n   AND r.id NOT IN (SELECT id FROM skipped)\n ORDER BY r.fire_at\n LIMIT 50;",
+        "options": {}
+      },
+      "id": "rt000000-0000-4000-8000-000000000002",
+      "name": "Напоминания: выборка",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -380,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "LXIg26xUOtUdy7DJ",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.telegram.org/bot{{ $json.bot_token }}/sendMessage",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "chat_id",
+              "value": "={{ $json.chat_id }}"
+            },
+            {
+              "name": "text",
+              "value": "={{ \"⏰ Напоминание\\n\\n\" + $json.text }}"
+            }
+          ]
         },
-        "id": "rt000000-0000-4000-8000-000000000002",
-        "name": "Напоминания: выборка",
-        "type": "n8n-nodes-base.postgres",
-        "typeVersion": 2.6,
-        "position": [
-          -380,
-          0
-        ],
-        "credentials": {
-          "postgres": {
-            "id": "LXIg26xUOtUdy7DJ",
-            "name": "Postgres account"
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
           }
         }
       },
-      {
-        "parameters": {
-          "method": "POST",
-          "url": "=https://api.telegram.org/bot{{ $json.bot_token }}/sendMessage",
-          "sendBody": true,
-          "bodyParameters": {
-            "parameters": [
-              {
-                "name": "chat_id",
-                "value": "={{ $json.chat_id }}"
-              },
-              {
-                "name": "text",
-                "value": "={{ \"⏰ Напоминание\\n\\n\" + $json.text }}"
-              }
-            ]
-          },
-          "options": {
-            "timeout": 20000,
-            "response": {
-              "response": {
-                "fullResponse": true,
-                "neverError": true
-              }
-            }
-          }
-        },
-        "id": "rt000000-0000-4000-8000-000000000003",
-        "name": "Напоминания: отправить",
-        "type": "n8n-nodes-base.httpRequest",
-        "typeVersion": 4.4,
-        "position": [
-          -160,
-          0
-        ],
-        "onError": "continueRegularOutput"
-      },
-      {
-        "parameters": {
-          "operation": "executeQuery",
-          "query": "WITH done AS (\n  UPDATE reminder SET status = CASE WHEN $3 THEN 'sent' ELSE 'failed' END, sent_at = now()\n   WHERE id = $1 AND status = 'pending'\n   RETURNING bot_id, user_id, chat_id, text, repeat_rule, fire_at\n),\nhist AS (\n  INSERT INTO n8n_chat_histories (session_id, message)\n  SELECT bot_id || ':' || user_id, jsonb_build_object('type','ai','content', $2) FROM done WHERE $3\n),\nnxt AS (\n  INSERT INTO reminder (bot_id, user_id, chat_id, fire_at, text, repeat_rule)\n  SELECT bot_id, user_id, chat_id,\n         CASE repeat_rule WHEN 'daily' THEN fire_at + interval '1 day'\n                          ELSE fire_at + interval '7 days' END,\n         text, repeat_rule\n    FROM done WHERE $3 AND repeat_rule IN ('daily','weekly')\n)\nSELECT 1;",
-          "options": {
-            "queryReplacement": "={{ [ $('Напоминания: выборка').item.json.id, \"⏰ Напоминание\\n\\n\" + $('Напоминания: выборка').item.json.text, ($json.statusCode === 200 && $json.body && $json.body.ok === true) ] }}"
-          }
-        },
-        "id": "rt000000-0000-4000-8000-000000000004",
-        "name": "Напоминания: закрыть",
-        "type": "n8n-nodes-base.postgres",
-        "typeVersion": 2.6,
-        "position": [
-          60,
-          0
-        ],
-        "credentials": {
-          "postgres": {
-            "id": "LXIg26xUOtUdy7DJ",
-            "name": "Postgres account"
-          }
-        },
-        "onError": "continueRegularOutput"
-      }
-    ],
-    "connections": {
-      "Каждые 5 минут": {
-        "main": [
-          [
-            {
-              "node": "Напоминания: выборка",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Напоминания: выборка": {
-        "main": [
-          [
-            {
-              "node": "Напоминания: отправить",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Напоминания: отправить": {
-        "main": [
-          [
-            {
-              "node": "Напоминания: закрыть",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      }
+      "id": "rt000000-0000-4000-8000-000000000003",
+      "name": "Напоминания: отправить",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -160,
+        0
+      ],
+      "onError": "continueRegularOutput"
     },
-    "settings": {
-      "executionOrder": "v1",
-      "errorWorkflow": "ErrorNotify00001",
-      "executionTimeout": 300
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH done AS (\n  UPDATE reminder SET status = CASE WHEN $3 THEN 'sent' ELSE 'failed' END, sent_at = now()\n   WHERE id = $1 AND status = 'pending'\n   RETURNING bot_id, user_id, chat_id, text, repeat_rule, fire_at, done_when\n),\nhist AS (\n  INSERT INTO n8n_chat_histories (session_id, message)\n  SELECT bot_id || ':' || user_id, jsonb_build_object('type','ai','content', $2) FROM done WHERE $3\n),\nnxt AS (\n  INSERT INTO reminder (bot_id, user_id, chat_id, fire_at, text, repeat_rule, done_when)\n  SELECT bot_id, user_id, chat_id,\n         CASE repeat_rule WHEN 'daily' THEN fire_at + interval '1 day'\n                          ELSE fire_at + interval '7 days' END,\n         text, repeat_rule, done_when\n    FROM done WHERE $3 AND repeat_rule IN ('daily','weekly')\n)\nSELECT 1;",
+        "options": {
+          "queryReplacement": "={{ [ $('Напоминания: выборка').item.json.id, \"⏰ Напоминание\\n\\n\" + $('Напоминания: выборка').item.json.text, ($json.statusCode === 200 && $json.body && $json.body.ok === true) ] }}"
+        }
+      },
+      "id": "rt000000-0000-4000-8000-000000000004",
+      "name": "Напоминания: закрыть",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        60,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "LXIg26xUOtUdy7DJ",
+          "name": "Postgres account"
+        }
+      },
+      "onError": "continueRegularOutput"
     }
+  ],
+  "connections": {
+    "Каждые 5 минут": {
+      "main": [
+        [
+          {
+            "node": "Напоминания: выборка",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Напоминания: выборка": {
+      "main": [
+        [
+          {
+            "node": "Напоминания: отправить",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Напоминания: отправить": {
+      "main": [
+        [
+          {
+            "node": "Напоминания: закрыть",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "ErrorNotify00001",
+    "executionTimeout": 300
+  },
+  "staticData": {
+    "node:Каждые 5 минут": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": null,
+  "versionId": "0cb66ecd-c979-4714-b81c-c49353f929cd",
+  "activeVersionId": "0cb66ecd-c979-4714-b81c-c49353f929cd",
+  "versionCounter": 3,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-08-20T16:47:35.239Z",
+      "createdAt": "2026-08-20T16:47:35.239Z",
+      "role": "workflow:owner",
+      "workflowId": "ReminderTick01",
+      "projectId": "aeezIZ8IOn3uHQp8",
+      "project": {
+        "updatedAt": "2026-06-27T10:22:49.126Z",
+        "createdAt": "2026-06-27T10:15:58.391Z",
+        "id": "aeezIZ8IOn3uHQp8",
+        "name": "Andrey Koldorkin <andreicros@proton.me>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "5ebf5692-854f-4f37-a2cd-09eaa9ace37e"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
   }
-]
+}

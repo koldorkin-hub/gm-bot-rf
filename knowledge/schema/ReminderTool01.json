@@ -1,160 +1,200 @@
-[
-  {
-    "id": "ReminderTool01",
-    "name": "Инструмент — Напоминания",
-    "active": false,
-    "nodes": [
-      {
-        "parameters": {
-          "inputSource": "workflowInputs",
-          "workflowInputs": {
-            "values": [
-              {
-                "name": "bot_id",
-                "type": "string"
-              },
-              {
-                "name": "user_id",
-                "type": "number"
-              },
-              {
-                "name": "chat_id",
-                "type": "number"
-              },
-              {
-                "name": "tz",
-                "type": "string"
-              },
-              {
-                "name": "action",
-                "type": "string"
-              },
-              {
-                "name": "text",
-                "type": "string"
-              },
-              {
-                "name": "when_date",
-                "type": "string"
-              },
-              {
-                "name": "when_time",
-                "type": "string"
-              },
-              {
-                "name": "in_minutes",
-                "type": "number"
-              },
-              {
-                "name": "repeat",
-                "type": "string"
-              },
-              {
-                "name": "id",
-                "type": "number"
-              }
-            ]
-          }
-        },
-        "id": "rm000000-0000-4000-8000-000000000001",
-        "name": "When Executed by Another Workflow",
-        "type": "n8n-nodes-base.executeWorkflowTrigger",
-        "typeVersion": 1.2,
-        "position": [
-          -600,
-          0
-        ]
-      },
-      {
-        "parameters": {
-          "jsCode": "const d = $input.first().json;\nconst action = String(d.action || 'create').trim().toLowerCase();\nconst bot = d.bot_id, uid = Number(d.user_id), chat = Number(d.chat_id) || null;\nconst tz = String(d.tz || '').trim() || 'Europe/Moscow';\nconst text = String(d.text || '').trim();\nconst isDate = (s) => /^\\d{4}-\\d{2}-\\d{2}$/.test(String(s || '').trim());\nconst isTime = (s) => /^\\d{1,2}:\\d{2}$/.test(String(s || '').trim());\nconst pad = (s) => { const p = String(s).split(':'); return String(p[0]).padStart(2, '0') + ':' + p[1]; };\n\nlet query, params;\n\nif (action === 'list') {\n  query = \"SELECT id, to_char(fire_at AT TIME ZONE $3, 'DD.MM HH24:MI') AS kogda, text, repeat_rule\" +\n          \" FROM reminder WHERE bot_id=$1 AND user_id=$2 AND status='pending' ORDER BY fire_at LIMIT 20\";\n  params = [bot, uid, tz];\n  return [{ json: { query, params, action } }];\n}\n\nif (action === 'cancel') {\n  const id = Number(d.id);\n  if (!isFinite(id)) throw new Error('для отмены нужен id напоминания - сначала вызови action=list');\n  query = \"UPDATE reminder SET status='cancelled' WHERE id=$1 AND bot_id=$2 AND user_id=$3 RETURNING id, text\";\n  params = [id, bot, uid];\n  return [{ json: { query, params, action } }];\n}\n\n// создание\nif (!text) throw new Error('нужен текст напоминания');\nconst mins = Number(d.in_minutes);\nconst rep = ['daily', 'weekly'].includes(String(d.repeat || '').trim()) ? String(d.repeat).trim() : 'none';\n\nif (isFinite(mins) && mins > 0) {\n  if (mins > 60 * 24 * 370) throw new Error('слишком далеко - максимум год');\n  // Относительное время: считаем от now() базы, часовой пояс тут ни при чём.\n  query = \"INSERT INTO reminder (bot_id,user_id,chat_id,fire_at,text,repeat_rule)\" +\n          \" VALUES ($1,$2,$3, now() + ($4 || ' minutes')::interval, $5, $6)\" +\n          \" RETURNING id, to_char(fire_at AT TIME ZONE $7, 'DD.MM HH24:MI') AS kogda\";\n  params = [bot, uid, chat, String(Math.round(mins)), text, rep, tz];\n  return [{ json: { query, params, action: 'create' } }];\n}\n\nconst dt = String(d.when_date || '').trim();\nconst tm = String(d.when_time || '').trim();\nif (!isDate(dt) || !isTime(tm)) {\n  throw new Error('нужна дата ГГГГ-ММ-ДД и время ЧЧ:ММ (бери дату из справки СЕГОДНЯ) либо in_minutes');\n}\n// Перевод местного времени клиента в UTC делает Postgres — не JS и не модель.\nquery = \"INSERT INTO reminder (bot_id,user_id,chat_id,fire_at,text,repeat_rule)\" +\n        \" VALUES ($1,$2,$3, ($4 || ' ' || $5)::timestamp AT TIME ZONE $6, $7, $8)\" +\n        \" RETURNING id, to_char(fire_at AT TIME ZONE $6, 'DD.MM HH24:MI') AS kogda\";\nparams = [bot, uid, chat, dt, pad(tm), tz, text, rep];\nreturn [{ json: { query, params, action: 'create' } }];"
-        },
-        "id": "rm000000-0000-4000-8000-000000000002",
-        "name": "Параметры",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [
-          -380,
-          0
-        ]
-      },
-      {
-        "parameters": {
-          "operation": "executeQuery",
-          "query": "={{ $json.query }}",
-          "options": {
-            "queryReplacement": "={{ $json.params }}"
-          }
-        },
-        "id": "rm000000-0000-4000-8000-000000000003",
-        "name": "Данные",
-        "type": "n8n-nodes-base.postgres",
-        "typeVersion": 2.6,
-        "position": [
-          -160,
-          0
-        ],
-        "credentials": {
-          "postgres": {
-            "id": "LXIg26xUOtUdy7DJ",
-            "name": "Postgres account"
-          }
-        },
-        "alwaysOutputData": true
-      },
-      {
-        "parameters": {
-          "jsCode": "const act = $('Параметры').first().json.action;\nconst rows = $input.all().map(i => i.json).filter(r => r && (r.id || r.kogda));\n\nif (act === 'list') {\n  if (!rows.length) return [{ json: { response: 'Активных напоминаний нет.' } }];\n  const list = rows.map(r => '#' + r.id + ' — ' + r.kogda + ' — ' + r.text +\n    (r.repeat_rule && r.repeat_rule !== 'none' ? ' (повтор: ' + (r.repeat_rule === 'daily' ? 'ежедневно' : 'еженедельно') + ')' : '')).join('\\n');\n  return [{ json: { response: 'Активные напоминания:\\n' + list } }];\n}\n\nif (act === 'cancel') {\n  if (!rows.length) return [{ json: { response: 'Такого напоминания нет или оно уже закрыто.' } }];\n  return [{ json: { response: 'Отменил напоминание #' + rows[0].id + '.' } }];\n}\n\nif (!rows.length) return [{ json: { response: 'Не удалось поставить напоминание.' } }];\nreturn [{ json: { response: 'Напоминание поставлено на ' + rows[0].kogda + ' (время клиента), номер #' + rows[0].id +\n  '. Оно придёт само, будильник заводить не нужно.' } }];"
-        },
-        "id": "rm000000-0000-4000-8000-000000000004",
-        "name": "Ответ агенту",
-        "type": "n8n-nodes-base.code",
-        "typeVersion": 2,
-        "position": [
-          60,
-          0
-        ]
-      }
-    ],
-    "connections": {
-      "When Executed by Another Workflow": {
-        "main": [
-          [
+{
+  "updatedAt": "2026-09-11T11:25:42.000Z",
+  "createdAt": "2026-08-20T16:47:31.828Z",
+  "id": "ReminderTool01",
+  "name": "Инструмент — Напоминания",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
             {
-              "node": "Параметры",
-              "type": "main",
-              "index": 0
+              "name": "bot_id",
+              "type": "string"
+            },
+            {
+              "name": "user_id",
+              "type": "number"
+            },
+            {
+              "name": "chat_id",
+              "type": "number"
+            },
+            {
+              "name": "tz",
+              "type": "string"
+            },
+            {
+              "name": "action",
+              "type": "string"
+            },
+            {
+              "name": "text",
+              "type": "string"
+            },
+            {
+              "name": "when_date",
+              "type": "string"
+            },
+            {
+              "name": "when_time",
+              "type": "string"
+            },
+            {
+              "name": "in_minutes",
+              "type": "number"
+            },
+            {
+              "name": "repeat",
+              "type": "string"
+            },
+            {
+              "name": "id",
+              "type": "number"
+            },
+            {
+              "name": "done_when",
+              "type": "string"
             }
           ]
-        ]
+        }
       },
-      "Параметры": {
-        "main": [
-          [
-            {
-              "node": "Данные",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      },
-      "Данные": {
-        "main": [
-          [
-            {
-              "node": "Ответ агенту",
-              "type": "main",
-              "index": 0
-            }
-          ]
-        ]
-      }
+      "id": "rm000000-0000-4000-8000-000000000001",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -600,
+        0
+      ]
     },
-    "settings": {
-      "executionOrder": "v1",
-      "errorWorkflow": "ErrorNotify00001",
-      "executionTimeout": 120
+    {
+      "parameters": {
+        "jsCode": "const d = $input.first().json;\nconst action = String(d.action || 'create').trim().toLowerCase();\nconst bot = d.bot_id, uid = Number(d.user_id), chat = Number(d.chat_id) || null;\nconst tz = String(d.tz || '').trim() || 'Europe/Moscow';\nconst text = String(d.text || '').trim();\nconst isDate = (s) => /^\\d{4}-\\d{2}-\\d{2}$/.test(String(s || '').trim());\nconst isTime = (s) => /^\\d{1,2}:\\d{2}$/.test(String(s || '').trim());\nconst pad = (s) => { const p = String(s).split(':'); return String(p[0]).padStart(2, '0') + ':' + p[1]; };\n\n// Чем напоминание закрывается само, если клиент сделал дело заранее. Закрытый список:\n// всё прочее превращается в 'none' — напоминание придёт как обычно.\nconst DONE_OK = /^(none|measurement:(weight|waist|hip|body_fat_pct)|food:(breakfast|lunch|dinner|snack)|workout:(strength|cardio))$/;\n// Лекарства и медицинское не закрываются НИКОГДА: пропущенный укол хуже лишнего\n// напоминания. Слова проверяются только в безопасную сторону — ложное совпадение\n// лишь означает, что напоминание придёт.\nconst MED = /(укол|инъекц|препарат|лекарств|таблет|капсул|сустанон|мастерон|тирзепатид|седжаро|оземпик|семаглут|хгч|анастрозол|тадалафил|туринабол|гормон|витамин|добавк|\\d\\s*(мг|мл|ме)(?![а-яё]))/i;\nlet doneWhen = String(d.done_when || '').trim().toLowerCase();\nif (!DONE_OK.test(doneWhen)) doneWhen = 'none';\nconst medForced = doneWhen !== 'none' && MED.test(text);\nif (medForced) doneWhen = 'none';\n\nlet query, params;\n\nif (action === 'list') {\n  query = \"SELECT id, to_char(fire_at AT TIME ZONE $3, 'DD.MM HH24:MI') AS kogda, text, repeat_rule, done_when\" +\n          \" FROM reminder WHERE bot_id=$1 AND user_id=$2 AND status='pending' ORDER BY fire_at LIMIT 20\";\n  params = [bot, uid, tz];\n  return [{ json: { query, params, action } }];\n}\n\nif (action === 'cancel') {\n  const id = Number(d.id);\n  if (!isFinite(id)) throw new Error('для отмены нужен id напоминания - сначала вызови action=list');\n  query = \"UPDATE reminder SET status='cancelled' WHERE id=$1 AND bot_id=$2 AND user_id=$3 RETURNING id, text\";\n  params = [id, bot, uid];\n  return [{ json: { query, params, action } }];\n}\n\n// создание\nif (!text) throw new Error('нужен текст напоминания');\nconst mins = Number(d.in_minutes);\nconst rep = ['daily', 'weekly'].includes(String(d.repeat || '').trim()) ? String(d.repeat).trim() : 'none';\n\n// Соседи по времени (±30 минут): бот видит, что на это время уже что-то стоит, и может\n// отменить старое, если новое его заменяет. Создание не блокируется.\nconst near = (tzParam) => \"(SELECT coalesce(json_agg(json_build_object('id', r.id, 'kogda', to_char(r.fire_at AT TIME ZONE \" + tzParam +\n  \", 'DD.MM HH24:MI'), 'text', r.text) ORDER BY r.fire_at), '[]'::json)\" +\n  \" FROM reminder r WHERE r.bot_id = $1 AND r.user_id = $2 AND r.status = 'pending'\" +\n  \" AND r.id <> ins.id AND abs(extract(epoch FROM (r.fire_at - ins.fire_at))) <= 1800) AS near\";\n\nif (isFinite(mins) && mins > 0) {\n  if (mins > 60 * 24 * 370) throw new Error('слишком далеко - максимум год');\n  // Относительное время: считаем от now() базы, часовой пояс тут ни при чём.\n  query = \"WITH ins AS (INSERT INTO reminder (bot_id,user_id,chat_id,fire_at,text,repeat_rule,done_when)\" +\n          \" VALUES ($1,$2,$3, now() + ($4 || ' minutes')::interval, $5, $6, $8) RETURNING id, fire_at)\" +\n          \" SELECT ins.id, to_char(ins.fire_at AT TIME ZONE $7, 'DD.MM HH24:MI') AS kogda, \" + near('$7') + \" FROM ins\";\n  params = [bot, uid, chat, String(Math.round(mins)), text, rep, tz, doneWhen];\n  return [{ json: { query, params, action: 'create', done_when: doneWhen, med_forced: medForced } }];\n}\n\nconst dt = String(d.when_date || '').trim();\nconst tm = String(d.when_time || '').trim();\nif (!isDate(dt) || !isTime(tm)) {\n  throw new Error('нужна дата ГГГГ-ММ-ДД и время ЧЧ:ММ (бери дату из справки СЕГОДНЯ) либо in_minutes');\n}\n// Перевод местного времени клиента в UTC делает Postgres — не JS и не модель.\nquery = \"WITH ins AS (INSERT INTO reminder (bot_id,user_id,chat_id,fire_at,text,repeat_rule,done_when)\" +\n        \" VALUES ($1,$2,$3, ($4 || ' ' || $5)::timestamp AT TIME ZONE $6, $7, $8, $9) RETURNING id, fire_at)\" +\n        \" SELECT ins.id, to_char(ins.fire_at AT TIME ZONE $6, 'DD.MM HH24:MI') AS kogda, \" + near('$6') + \" FROM ins\";\nparams = [bot, uid, chat, dt, pad(tm), tz, text, rep, doneWhen];\nreturn [{ json: { query, params, action: 'create', done_when: doneWhen, med_forced: medForced } }];"
+      },
+      "id": "rm000000-0000-4000-8000-000000000002",
+      "name": "Параметры",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -380,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.query }}",
+        "options": {
+          "queryReplacement": "={{ $json.params }}"
+        }
+      },
+      "id": "rm000000-0000-4000-8000-000000000003",
+      "name": "Данные",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -160,
+        0
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "LXIg26xUOtUdy7DJ",
+          "name": "Postgres account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const P = $('Параметры').first().json;\nconst act = P.action;\nconst rows = $input.all().map(i => i.json).filter(r => r && (r.id || r.kogda));\nconst DW = {\n  'measurement:weight': 'взвешивание', 'measurement:waist': 'замер талии', 'measurement:hip': 'замер бёдер',\n  'measurement:body_fat_pct': 'замер % жира', 'food:breakfast': 'запись завтрака', 'food:lunch': 'запись обеда',\n  'food:dinner': 'запись ужина', 'food:snack': 'запись перекуса',\n  'workout:strength': 'силовая тренировка', 'workout:cardio': 'кардио-тренировка'\n};\n\nif (act === 'list') {\n  if (!rows.length) return [{ json: { response: 'Активных напоминаний нет.' } }];\n  const list = rows.map(r => '#' + r.id + ' — ' + r.kogda + ' — ' + r.text +\n    (r.repeat_rule && r.repeat_rule !== 'none' ? ' (повтор: ' + (r.repeat_rule === 'daily' ? 'ежедневно' : 'еженедельно') + ')' : '') +\n    (r.done_when && r.done_when !== 'none' ? ' [не придёт, если в тот день уже есть: ' + (DW[r.done_when] || r.done_when) + ']' : '')).join('\\n');\n  return [{ json: { response: 'Активные напоминания:\\n' + list } }];\n}\n\nif (act === 'cancel') {\n  if (!rows.length) return [{ json: { response: 'Такого напоминания нет или оно уже закрыто.' } }];\n  return [{ json: { response: 'Отменил напоминание #' + rows[0].id + '.' } }];\n}\n\nif (!rows.length) return [{ json: { response: 'Не удалось поставить напоминание.' } }];\nconst r0 = rows[0];\nlet resp = 'Напоминание поставлено на ' + r0.kogda + ' (время клиента), номер #' + r0.id +\n  '. Оно придёт само, будильник заводить не нужно.';\nif (P.done_when && P.done_when !== 'none') {\n  resp += ' Если клиент в тот день заранее сделает и запишет: ' + (DW[P.done_when] || P.done_when) +\n    ', — напоминание не придёт, это нормально.';\n}\nif (P.med_forced) resp += ' (Связь с действием не поставлена: напоминания о лекарствах и уколах приходят всегда.)';\nlet nb = r0.near;\nif (typeof nb === 'string') { try { nb = JSON.parse(nb); } catch (e) { nb = []; } }\nif (Array.isArray(nb) && nb.length) {\n  resp += '\\n\\nВНИМАНИЕ: на это же время (±30 минут) у клиента уже стоят напоминания:\\n' +\n    nb.map(n => '#' + n.id + ' — ' + n.kogda + ' — ' + n.text).join('\\n') +\n    '\\nЕсли новое напоминание ЗАМЕНЯЕТ их (обновился план, курс или график) — отмени старые через action=cancel, ' +\n    'иначе клиент получит дубли. Если это разные дела — ничего не делай.';\n}\nreturn [{ json: { response: resp } }];"
+      },
+      "id": "rm000000-0000-4000-8000-000000000004",
+      "name": "Ответ агенту",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        0
+      ]
     }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Параметры",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Параметры": {
+      "main": [
+        [
+          {
+            "node": "Данные",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Данные": {
+      "main": [
+        [
+          {
+            "node": "Ответ агенту",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "ErrorNotify00001",
+    "executionTimeout": 120
+  },
+  "staticData": null,
+  "meta": null,
+  "nodeGroups": [],
+  "pinData": null,
+  "versionId": "6f3f9162-01b2-4449-8cb6-c35768f95572",
+  "activeVersionId": "6f3f9162-01b2-4449-8cb6-c35768f95572",
+  "versionCounter": 2,
+  "triggerCount": 0,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2026-08-20T16:47:31.833Z",
+      "createdAt": "2026-08-20T16:47:31.833Z",
+      "role": "workflow:owner",
+      "workflowId": "ReminderTool01",
+      "projectId": "aeezIZ8IOn3uHQp8",
+      "project": {
+        "updatedAt": "2026-06-27T10:22:49.126Z",
+        "createdAt": "2026-06-27T10:15:58.391Z",
+        "id": "aeezIZ8IOn3uHQp8",
+        "name": "Andrey Koldorkin <andreicros@proton.me>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "customTelemetryTags": [],
+        "creatorId": "5ebf5692-854f-4f37-a2cd-09eaa9ace37e"
+      }
+    }
+  ],
+  "versionMetadata": {
+    "name": null,
+    "description": null
   }
-]
+}
